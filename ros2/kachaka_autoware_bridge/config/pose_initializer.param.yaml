@@ -2,7 +2,9 @@
   ros__parameters:
     user_defined_initial_pose:
       enable: false
-      pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      # [x, y, z, qx, qy, qz, qw] - identity quaternion so flipping `enable`
+      # later yields a valid orientation by default.
+      pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
 
     gnss_pose_timeout: 3.0
     stop_check_duration: 3.0
