@@ -4,9 +4,9 @@
   <name>kachaka_autoware_description</name>
   <version>0.0.0</version>
   <description>Composite URDF for Kachaka with the 3-tier shelf and a roof-mounted Ouster OS-1 128, plus Autoware vehicle_info parameters tuned for differential drive.</description>
-  <maintainer email="support@kachaka.life">Kachaka Customer Support</maintainer>
+  <maintainer email="yutaka.kondo@youtalk.jp">Yutaka Kondo</maintainer>
   <license>Apache License 2.0</license>
-  <author email="support@kachaka.life">Kachaka Customer Support</author>
+  <author email="yutaka.kondo@youtalk.jp">Yutaka Kondo</author>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
