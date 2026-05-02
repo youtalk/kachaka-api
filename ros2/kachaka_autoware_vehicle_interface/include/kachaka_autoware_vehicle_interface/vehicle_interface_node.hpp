@@ -56,10 +56,12 @@ private:
   rclcpp::TimerBase::SharedPtr velocity_status_timer_;
   rclcpp::TimerBase::SharedPtr op_mode_timer_;
   rclcpp::TimerBase::SharedPtr cmd_vel_timeout_timer_;
+  rclcpp::TimerBase::SharedPtr enable_manual_control_timer_;
 
   nav_msgs::msg::Odometry::SharedPtr latest_odom_;
   rclcpp::Time last_control_stamp_;
   double cmd_vel_timeout_sec_;
+  bool enable_manual_control_pending_value_{false};
 
   void on_control(const autoware_control_msgs::msg::Control::SharedPtr msg);
   void on_odom(const nav_msgs::msg::Odometry::SharedPtr msg);

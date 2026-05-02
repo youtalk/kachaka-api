@@ -93,10 +93,14 @@ VehicleInterfaceNode::VehicleInterfaceNode(const rclcpp::NodeOptions & options)
 void VehicleInterfaceNode::on_control(
   const autoware_control_msgs::msg::Control::SharedPtr msg)
 {
-  last_control_stamp_ = now();
+  // Only stamp on AUTONOMOUS-period traffic — the watchdog is "control_cmd
+  // stops arriving while AUTONOMOUS". Stamping unconditionally would let
+  // STOP-mode chatter reset the watchdog and silently delay the zero-Twist
+  // failsafe by up to cmd_vel_timeout after the AUTONOMOUS transition.
   if (state_machine_.get_state() != OperationMode::AUTONOMOUS) {
     return;
   }
+  last_control_stamp_ = now();
   twist_pub_->publish(converter_->convert(*msg));
 }
 
@@ -149,6 +153,10 @@ void VehicleInterfaceNode::on_change_to_autonomous(
   const autoware_adapi_v1_msgs::srv::ChangeOperationMode::Request::SharedPtr /*req*/,
   autoware_adapi_v1_msgs::srv::ChangeOperationMode::Response::SharedPtr resp)
 {
+  // Reset the watchdog stamp so a stale timestamp from a prior AUTONOMOUS
+  // session cannot trip the zero-Twist failsafe before the first new
+  // control_cmd is received.
+  last_control_stamp_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   state_machine_.request_autonomous();
   resp->status.success = true;
 }
@@ -163,18 +171,25 @@ void VehicleInterfaceNode::on_change_to_stop(
 
 void VehicleInterfaceNode::enable_manual_control(bool enable)
 {
-  if (!enable_manual_control_client_->wait_for_service(2s)) {
-    RCLCPP_WARN(
-      get_logger(),
-      "/kachaka/manual_control/set_enabled service not available; manual_control will be enabled "
-      "lazily on the first cmd_vel.");
-    return;
-  }
-  auto req = std::make_shared<std_srvs::srv::SetBool::Request>();
-  req->data = enable;
-  enable_manual_control_client_->async_send_request(req);
-  RCLCPP_INFO(
-    get_logger(), "Requested set_manual_control_enabled(%s)", enable ? "true" : "false");
+  // Non-blocking: arm a 500 ms periodic timer that polls service availability
+  // and fires the request once the service shows up. Avoids stalling the node
+  // constructor for up to 2 s when the Kachaka bridge is not (yet) running.
+  // The bridge's manual_control component additionally has a lazy-enable
+  // fallback on the first cmd_vel, so a missing service here is non-fatal.
+  enable_manual_control_pending_value_ = enable;
+  enable_manual_control_timer_ = create_wall_timer(
+    500ms, [this]() {
+      if (!enable_manual_control_client_->service_is_ready()) {
+        return;
+      }
+      auto req = std::make_shared<std_srvs::srv::SetBool::Request>();
+      req->data = enable_manual_control_pending_value_;
+      enable_manual_control_client_->async_send_request(req);
+      RCLCPP_INFO(
+        get_logger(), "Requested set_manual_control_enabled(%s)",
+        enable_manual_control_pending_value_ ? "true" : "false");
+      enable_manual_control_timer_->cancel();
+    });
 }
 
 }  // namespace kachaka_autoware_vehicle_interface

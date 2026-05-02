@@ -15,8 +15,11 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cmath>
+#include <future>
 #include <memory>
 #include <optional>
+#include <thread>
 
 #include <rclcpp/rclcpp.hpp>
 
