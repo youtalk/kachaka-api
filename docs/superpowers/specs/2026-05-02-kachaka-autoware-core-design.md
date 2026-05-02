@@ -108,16 +108,21 @@ map  (NDT scan matcher)
              ├─ base_r_drive_wheel_link
              ├─ base_l_drive_wheel_link
              ├─ ... (既存)
-             └─ shelf_dock_link  (新規 static)
-                 └─ os1_sensor  (新規 static, Ouster URDF を include)
-                     ├─ os1_imu
-                     └─ os1_lidar
+             └─ docking_link  (既存 prismatic、ドッキング・リフト機構)
+                 └─ shelf_base_link  (新規 fixed、純正 3 段シェルフの底面中心)
+                     ├─ shelf_bottom_board / middle_board / top_board
+                     ├─ shelf_fl_post / fr_post / bl_post / br_post
+                     └─ shelf_top  (シェルフ上面、ペイロード取付アンカー)
+                         └─ os1_sensor  (新規 fixed, Ouster OS-1 128)
+                             ├─ os1_imu
+                             └─ os1_lidar
 ```
 
 `map → odom`: `autoware_ekf_localizer` が public（既存）
 `odom → base_footprint`: Kachakaの `dynamic_tf_bridge`（既存）
-`base_footprint → base_link → ...`: Kachakaの `static_tf` + `robot_state_publisher`（既存）
-`base_link → shelf_dock_link → os1_sensor`: 新規追加 static_tf
+`base_footprint → base_link → ... → docking_link`: Kachakaの `_kachaka.urdf.xacro` + `robot_state_publisher`（既存、無変更）
+`docking_link → shelf_*`: `kachaka_description/urdf/_shelf_3tier.urdf.xacro`（**改良で追加**、純正 3 段シェルフはKachakaの装備品なので kachaka_description の責務）
+`shelf_top → os1_sensor → os1_lidar/imu`: `kachaka_autoware_description/urdf/_ouster_os1.urdf.xacro`（新規パッケージ）
 
 ### 4.3 座標系の整合
 
@@ -131,37 +136,47 @@ map  (NDT scan matcher)
 
 ```
 ros2/
-├── kachaka_autoware_bridge/                       # メタ + 統合launch
+├── kachaka_description/                            # ★ 改良: 純正 3 段シェルフのマクロを追加
+│   └── urdf/
+│       └── _shelf_3tier.urdf.xacro                  # 新規: 3 段シェルフのマクロ。Kachaka装備品なのでこのパッケージに置く
+│   (既存ファイル _materials / _values / _kachaka 等は破壊変更しない)
+│
+├── kachaka_autoware_bridge/                        # メタ + 統合launch
 │   ├── package.xml
 │   ├── CMakeLists.txt
 │   └── launch/
-│       └── kachaka_autoware.launch.xml             # 全部入りエントリポイント
-├── kachaka_autoware_vehicle_interface/             # ★ 中核
+│       └── kachaka_autoware.launch.xml              # 全部入りエントリポイント
+├── kachaka_autoware_vehicle_interface/              # ★ 中核（C++ Vehicle Interface ノード）
 │   ├── src/
-│   │   ├── vehicle_interface_node.cpp              # Control→Twist + status + operation_mode
+│   │   ├── vehicle_interface_node.cpp               # Control→Twist + status + operation_mode
 │   │   ├── vehicle_interface_node.hpp
-│   │   ├── operation_mode_state_machine.cpp        # 簡易 mode decider
+│   │   ├── operation_mode_state_machine.cpp         # 簡易 mode decider
 │   │   └── operation_mode_state_machine.hpp
 │   ├── launch/vehicle_interface.launch.xml
 │   ├── config/vehicle_interface.param.yaml
 │   └── test/
 │       └── test_control_to_twist.cpp
-├── kachaka_autoware_description/                   # OS-1 + シェルフ追加URDF + vehicle_info.yaml
+├── kachaka_autoware_description/                    # OS-1 + シェルフ装着済の完全 URDF + vehicle_info.yaml
 │   ├── urdf/
-│   │   ├── kachaka_autoware.urdf.xacro             # kachaka.urdf.xacro を include
-│   │   └── shelf_with_ouster.urdf.xacro
+│   │   ├── _ouster_os1.urdf.xacro                   # OS-1 128 のマクロ（簡易円筒モデル + lidar/imu フレーム）
+│   │   └── kachaka_with_shelf.urdf.xacro            # kachaka + 3 段シェルフ + OS-1 の完全 URDF
 │   ├── config/
-│   │   └── vehicle_info.param.yaml                 # 差動駆動向け仮想値
+│   │   └── vehicle_info.param.yaml                  # 差動駆動向け仮想値
 │   └── launch/robot_description.launch.py
-└── kachaka_autoware_maps/                          # サンプルマップ配置先（実体は外部）
-    └── README.md                                    # ユーザー作成手順
+└── kachaka_autoware_maps/                           # サンプルマップ配置先（実体は外部）
+    └── README.md                                     # ユーザー作成手順
 ```
 
 新規パッケージの依存関係:
 
-- `kachaka_autoware_vehicle_interface` → `autoware_control_msgs`, `autoware_adapi_v1_msgs`, `geometry_msgs`, `nav_msgs`, `kachaka_interfaces`, `std_srvs`
-- `kachaka_autoware_description` → `kachaka_description`, `xacro`, `ouster_description`（外部）
+- `kachaka_autoware_vehicle_interface` → `autoware_control_msgs`, `autoware_vehicle_msgs`, `autoware_adapi_v1_msgs`, `geometry_msgs`, `nav_msgs`, `std_srvs`
+- `kachaka_autoware_description` → `kachaka_description`（改良後）, `xacro`, `robot_state_publisher`
 - `kachaka_autoware_bridge` → 上記 3 つ + `autoware_default_adapi`, `autoware_adapi_adaptors`, `autoware_core_*`
+
+`kachaka_description` の改良:
+- `urdf/_shelf_3tier.urdf.xacro` を追加: `xacro:macro name="shelf_3tier" params="parent shelf_name"` を提供
+- `urdf/_materials.urdf.xacro` にシェルフ用マテリアル（`shelf_board` / `shelf_post`）追加
+- 既存の `_kachaka.urdf.xacro` / `_values.urdf.xacro` / `kachaka.urdf.xacro` には触らない（破壊変更を避け、既存ユーザーの URDF 出力を変えない）
 
 ## 6. Localization 設計
 

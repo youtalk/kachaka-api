@@ -379,36 +379,43 @@ EOF
 
 ### Task 4: M0-C — OS-1 物理固定とキャリブ値取得
 
-**目的:** Ouster OS-1 をシェルフに物理的に固定し、`base_footprint → os1_sensor` の 6DoF キャリブ値を取得する。
+**目的:** Ouster OS-1 をシェルフ天面に物理的に固定し、`shelf_top → os1_sensor` のオフセット値とシェルフ自身の概略寸法を実測する。Task 6 の `_shelf_3tier.urdf.xacro` の param と Task 7 の `_ouster_os1.urdf.xacro` の `<origin>` に転記する。
 
 **Files:**
-- 出力: メモ（後の Task 7 で `shelf_with_ouster.urdf.xacro` に転記する xyz/rpy 値）
+- 出力: メモ（Task 6 のシェルフ寸法 default、Task 7 の OS-1 取付 origin に転記する数値）
 
 - [ ] **Step 1: OS-1 をシェルフ天面の中央寄りに固定**
 
 物理作業（コードなし）。固定方法はユーザー裁量。注意点:
-- センサーの「前向き」マークが Kachakaの前進方向と一致するように
+- センサーの「前向き」マークが Kachaka の前進方向と一致するように
 - 水平を保つ（傾くと NDT のマッチング精度が落ちる）
+- シェルフ天面の中心からの xy ずれを最小化（モデル化ずれを減らす）
 
-- [ ] **Step 2: メジャーで `base_footprint` 基準のオフセットを測る**
+- [ ] **Step 2: メジャーで実寸を測る**
 
-人手で計測:
-- x: Kachaka の base_footprint（後輪軸中心の地面投影）から OS-1 取付中心までの前方距離
-- y: 同 横方向距離（中央なら 0）
-- z: 同 高さ（地面から OS-1 lidar origin までの高さ）
-- roll/pitch/yaw: 通常 0（水平に取り付けた前提）
+人手で計測（後で URDF に反映する数値）:
+- **シェルフ自体の寸法**:
+  - depth (x 方向、前後): メジャー実測。default 0.32 m に対して合っているか
+  - width (y 方向、左右): default 0.38 m に対して合っているか
+  - height (z 方向、シェルフ底面〜天板上面): default 0.50 m に対して合っているか
+- **OS-1 のシェルフ天面に対する取付オフセット**（`shelf_top` 基準）:
+  - x: シェルフ天面中心から OS-1 取付中心までの前方距離（中央なら 0）
+  - y: 同 横方向距離
+  - z: シェルフ天面（板の上面）から OS-1 sensor 原点（円筒下面）までの高さ。通常 0（直接乗せる）
+  - roll/pitch/yaw: 通常 0
+- **base_footprint → docking_link → shelf_base** はすべて (0,0,0) で固定（kachaka_description / _shelf_3tier の前提）。base_footprint から見た OS-1 lidar の高さは「docking_link 高さ + shelf height + OS-1 body_height + lidar_to_sensor_z」で URDF が自動算出する
 
-期待結果: 数値メモ（例 `x=0.10, y=0.0, z=0.85, rpy=0,0,0`）
+期待結果: 数値メモ（例 `shelf depth=0.32 / width=0.38 / height=0.50, os1_offset_xyz=0,0,0, rpy=0,0,0`）
 
-- [ ] **Step 3: 計測精度を確認（後で M2 で再キャリブ可能と想定）**
+- [ ] **Step 3: 計測精度を確認**
 
-最初は ±2cm / ±2deg 精度で十分。NDT が動かない場合に M2 で再調整する。
+最初は ±2cm / ±2deg 精度で十分。NDT が収束しない場合に M2 で再調整する。
 
 期待結果: メモ確定。
 
 - [ ] **Step 4: コミットなし**
 
-物理作業のみ。次の Task 7 で URDF に転記する。
+物理作業のみ。Task 6 のシェルフ寸法 default と Task 7 の OS-1 origin に値を反映する。
 
 ---
 
@@ -543,18 +550,194 @@ EOF
 
 ---
 
-### Task 6: kachaka_autoware_description パッケージのスケルトン作成
+### Task 6: kachaka_description の改良 — 純正 3 段シェルフのマクロ追加
 
-**目的:** `kachaka_autoware_description` の package.xml / CMakeLists.txt と空ディレクトリを作る。次の Task 7-8 で中身を入れる。
+**目的:** Kachaka の純正 3 段シェルフは Kachaka の装備品なので `kachaka_description` パッケージに `_shelf_3tier.urdf.xacro` として追加する。既存の `_kachaka.urdf.xacro` / `_values.urdf.xacro` / `kachaka.urdf.xacro` は破壊変更を避ける（既存ユーザーの URDF 出力を変えない）。シェルフは `docking_link` を起点に取り付けるマクロにし、ドッキング・リフトに追従させる。
+
+**Files:**
+- Modify: `ros2/kachaka_description/urdf/_materials.urdf.xacro` (シェルフ用マテリアル追加)
+- Create: `ros2/kachaka_description/urdf/_shelf_3tier.urdf.xacro`
+
+- [ ] **Step 1: マテリアル追加**
+
+`/home/youtalk/src/kachaka-api/ros2/kachaka_description/urdf/_materials.urdf.xacro` の `</robot>` 直前に以下の 2 マテリアルを append:
+
+```xml
+  <material name="shelf_board">
+    <color rgba="0.85 0.78 0.65 1.0" />
+  </material>
+  <material name="shelf_post">
+    <color rgba="0.15 0.15 0.15 1.0" />
+  </material>
+```
+
+最終形:
+
+```xml
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro">
+  <material name="body">
+    <color rgba="0.2175 0.2355 0.246 1.0" />
+  </material>
+  <material name="tire">
+    <color rgba="0.3 0.3 0.3 1.0" />
+  </material>
+  <material name="black">
+    <color rgba="0.0 0.0 0.0 1.0" />
+  </material>
+  <material name="shelf_board">
+    <color rgba="0.85 0.78 0.65 1.0" />
+  </material>
+  <material name="shelf_post">
+    <color rgba="0.15 0.15 0.15 1.0" />
+  </material>
+</robot>
+```
+
+- [ ] **Step 2: `_shelf_3tier.urdf.xacro` を作成**
+
+`/home/youtalk/src/kachaka-api/ros2/kachaka_description/urdf/_shelf_3tier.urdf.xacro`:
+
+```xml
+<?xml version="1.0"?>
+<robot name="shelf_3tier" xmlns:xacro="http://ros.org/wiki/xacro">
+  <!--
+    Kachaka 純正 3 段シェルフのマクロ。
+    寸法は概略値。後段で実機計測値に合わせて param 化された値を渡せる。
+    `parent` は通常 docking_link。docking lift に追従するため。
+  -->
+  <xacro:macro name="shelf_3tier"
+               params="parent
+                       shelf_name:=shelf
+                       depth:=0.32
+                       width:=0.38
+                       height:=0.50
+                       board_thickness:=0.015
+                       post_size:=0.020">
+
+    <!-- bottom-face center of the shelf is co-located with parent -->
+    <link name="${shelf_name}_base_link"/>
+    <joint name="${shelf_name}_base_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="${shelf_name}_base_link"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+
+    <!-- 3 horizontal boards: bottom (z=0), middle, top -->
+    <xacro:macro name="_shelf_board" params="board_name z">
+      <link name="${shelf_name}_${board_name}_board">
+        <visual>
+          <origin xyz="0 0 ${z + board_thickness/2}" rpy="0 0 0"/>
+          <geometry>
+            <box size="${depth} ${width} ${board_thickness}"/>
+          </geometry>
+          <material name="shelf_board"/>
+        </visual>
+        <collision>
+          <origin xyz="0 0 ${z + board_thickness/2}" rpy="0 0 0"/>
+          <geometry>
+            <box size="${depth} ${width} ${board_thickness}"/>
+          </geometry>
+        </collision>
+      </link>
+      <joint name="${shelf_name}_${board_name}_board_joint" type="fixed">
+        <parent link="${shelf_name}_base_link"/>
+        <child link="${shelf_name}_${board_name}_board"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+      </joint>
+    </xacro:macro>
+
+    <xacro:_shelf_board board_name="bottom" z="0"/>
+    <xacro:_shelf_board board_name="middle" z="${(height - board_thickness) / 2.0}"/>
+    <xacro:_shelf_board board_name="top"    z="${height - board_thickness}"/>
+
+    <!-- 4 corner posts (vertical) -->
+    <xacro:macro name="_shelf_post" params="post_name x y">
+      <link name="${shelf_name}_${post_name}_post">
+        <visual>
+          <origin xyz="${x} ${y} ${height/2.0}" rpy="0 0 0"/>
+          <geometry>
+            <box size="${post_size} ${post_size} ${height}"/>
+          </geometry>
+          <material name="shelf_post"/>
+        </visual>
+        <collision>
+          <origin xyz="${x} ${y} ${height/2.0}" rpy="0 0 0"/>
+          <geometry>
+            <box size="${post_size} ${post_size} ${height}"/>
+          </geometry>
+        </collision>
+      </link>
+      <joint name="${shelf_name}_${post_name}_post_joint" type="fixed">
+        <parent link="${shelf_name}_base_link"/>
+        <child link="${shelf_name}_${post_name}_post"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+      </joint>
+    </xacro:macro>
+
+    <xacro:_shelf_post post_name="fl" x="${ (depth - post_size)/2.0}" y="${ (width - post_size)/2.0}"/>
+    <xacro:_shelf_post post_name="fr" x="${ (depth - post_size)/2.0}" y="${-(width - post_size)/2.0}"/>
+    <xacro:_shelf_post post_name="bl" x="${-(depth - post_size)/2.0}" y="${ (width - post_size)/2.0}"/>
+    <xacro:_shelf_post post_name="br" x="${-(depth - post_size)/2.0}" y="${-(width - post_size)/2.0}"/>
+
+    <!-- shelf_top: a fixed anchor link on the top board's upper surface for payloads -->
+    <link name="${shelf_name}_top"/>
+    <joint name="${shelf_name}_top_joint" type="fixed">
+      <parent link="${shelf_name}_base_link"/>
+      <child link="${shelf_name}_top"/>
+      <origin xyz="0 0 ${height}" rpy="0 0 0"/>
+    </joint>
+  </xacro:macro>
+</robot>
+```
+
+- [ ] **Step 3: 既存 `kachaka.urdf.xacro` の出力が変わらないことを確認**
+
+実行コマンド:
+```bash
+cd ~/ros/jazzy
+colcon build --packages-select kachaka_description
+source install/setup.bash
+xacro src/kachaka-api/ros2/kachaka_description/robot/kachaka.urdf.xacro > /tmp/kachaka_after.urdf
+grep -c "<link" /tmp/kachaka_after.urdf
+grep -c "<joint" /tmp/kachaka_after.urdf
+grep "shelf" /tmp/kachaka_after.urdf || echo "no shelf in default kachaka — OK"
+```
+
+期待結果: 既存 link/joint 数が変わっていない。`shelf` が出力に含まれない（kachaka.urdf.xacro はシェルフを include しないので）。
+
+- [ ] **Step 4: コミット**
+
+実行コマンド:
+```bash
+cd ~/src/kachaka-api
+git add ros2/kachaka_description/urdf/_materials.urdf.xacro \
+        ros2/kachaka_description/urdf/_shelf_3tier.urdf.xacro
+git commit -m "$(cat <<'EOF'
+feat(description): add 3-tier Kachaka shelf macro
+
+_shelf_3tier.urdf.xacro provides a parameterized 3-tier shelf macro.
+Default dimensions are approximate; pass explicit params to override.
+Existing kachaka.urdf.xacro output is unchanged (the macro is opt-in).
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task 7: kachaka_autoware_description パッケージ + Ouster + 統合 URDF
+
+**目的:** 新規パッケージを作り、Ouster OS-1 マクロと、Kachaka + 3 段シェルフ + OS-1 を統合した完全 URDF を作る。
 
 **Files:**
 - Create: `ros2/kachaka_autoware_description/package.xml`
 - Create: `ros2/kachaka_autoware_description/CMakeLists.txt`
-- Create: `ros2/kachaka_autoware_description/urdf/.gitkeep`
-- Create: `ros2/kachaka_autoware_description/config/.gitkeep`
-- Create: `ros2/kachaka_autoware_description/launch/.gitkeep`
+- Create: `ros2/kachaka_autoware_description/urdf/_ouster_os1.urdf.xacro`
+- Create: `ros2/kachaka_autoware_description/urdf/kachaka_with_shelf.urdf.xacro`
 
-- [ ] **Step 1: package.xml を作成**
+- [ ] **Step 1: package.xml**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_description/package.xml`:
 
@@ -564,7 +747,7 @@ EOF
 <package format="3">
   <name>kachaka_autoware_description</name>
   <version>0.0.0</version>
-  <description>URDF augmentation for Kachaka with shelf-mounted Ouster OS-1, plus Autoware vehicle_info parameters tuned for differential drive.</description>
+  <description>Composite URDF for Kachaka with the 3-tier shelf and a roof-mounted Ouster OS-1 128, plus Autoware vehicle_info parameters tuned for differential drive.</description>
   <maintainer email="support@kachaka.life">Kachaka Customer Support</maintainer>
   <license>Apache License 2.0</license>
   <author email="support@kachaka.life">Kachaka Customer Support</author>
@@ -582,9 +765,7 @@ EOF
 </package>
 ```
 
-注意: `ouster_description` は `ouster-ros` リポジトリに含まれていれば `<exec_depend>` に足す。Task 8 で確認して調整。
-
-- [ ] **Step 2: CMakeLists.txt を作成**
+- [ ] **Step 2: CMakeLists.txt**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_description/CMakeLists.txt`:
 
@@ -600,160 +781,141 @@ install(DIRECTORY urdf config launch
 ament_package()
 ```
 
-- [ ] **Step 3: 空ディレクトリ + .gitkeep**
+- [ ] **Step 3: `_ouster_os1.urdf.xacro` を作成**
 
-実行コマンド:
-```bash
-cd /home/youtalk/src/kachaka-api/ros2/kachaka_autoware_description
-mkdir -p urdf config launch
-touch urdf/.gitkeep config/.gitkeep launch/.gitkeep
+`/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_description/urdf/_ouster_os1.urdf.xacro`:
+
+```xml
+<?xml version="1.0"?>
+<robot name="ouster_os1" xmlns:xacro="http://ros.org/wiki/xacro">
+  <!--
+    Ouster OS-1 (128) 簡易モデル。公式の ouster_description が手に入る場合はそれに置き換え可能。
+    body: 円筒（直径 85mm、高さ 73.5mm）
+    os1_lidar / os1_imu フレームのオフセットは Ouster ICD の値。
+  -->
+  <xacro:macro name="ouster_os1"
+               params="parent
+                       name:=os1
+                       *origin
+                       body_radius:=0.0425
+                       body_height:=0.0735
+                       lidar_to_sensor_z:=0.03618
+                       imu_offset_x:=0.006253
+                       imu_offset_y:=-0.011775
+                       imu_offset_z:=0.007645">
+
+    <link name="${name}_sensor">
+      <visual>
+        <origin xyz="0 0 ${body_height/2.0}" rpy="0 0 0"/>
+        <geometry>
+          <cylinder length="${body_height}" radius="${body_radius}"/>
+        </geometry>
+        <material name="black"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 ${body_height/2.0}" rpy="0 0 0"/>
+        <geometry>
+          <cylinder length="${body_height}" radius="${body_radius}"/>
+        </geometry>
+      </collision>
+    </link>
+    <joint name="${name}_mount_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="${name}_sensor"/>
+      <xacro:insert_block name="origin"/>
+    </joint>
+
+    <link name="${name}_lidar"/>
+    <joint name="${name}_lidar_joint" type="fixed">
+      <parent link="${name}_sensor"/>
+      <child link="${name}_lidar"/>
+      <origin xyz="0 0 ${lidar_to_sensor_z}" rpy="0 0 0"/>
+    </joint>
+
+    <link name="${name}_imu"/>
+    <joint name="${name}_imu_joint" type="fixed">
+      <parent link="${name}_sensor"/>
+      <child link="${name}_imu"/>
+      <origin xyz="${imu_offset_x} ${imu_offset_y} ${imu_offset_z}" rpy="0 0 0"/>
+    </joint>
+  </xacro:macro>
+</robot>
 ```
 
-- [ ] **Step 4: ビルド確認**
+注意: `_ouster_os1.urdf.xacro` は `_materials.urdf.xacro` の `black` マテリアルを参照するので、include 順は kachaka 側 → ouster 側 にする必要がある（Step 4 で対応）。
+
+- [ ] **Step 4: `kachaka_with_shelf.urdf.xacro` を作成**
+
+`/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_description/urdf/kachaka_with_shelf.urdf.xacro`:
+
+```xml
+<?xml version="1.0"?>
+<robot name="kachaka_with_shelf" xmlns:xacro="http://ros.org/wiki/xacro">
+
+  <!-- materials/values come from kachaka_description so kachaka_robot and shelf macros work -->
+  <xacro:include filename="$(find kachaka_description)/urdf/_materials.urdf.xacro"/>
+  <xacro:include filename="$(find kachaka_description)/urdf/_values.urdf.xacro"/>
+  <xacro:include filename="$(find kachaka_description)/urdf/_kachaka.urdf.xacro"/>
+  <xacro:include filename="$(find kachaka_description)/urdf/_shelf_3tier.urdf.xacro"/>
+  <xacro:include filename="$(find kachaka_autoware_description)/urdf/_ouster_os1.urdf.xacro"/>
+
+  <!-- root -->
+  <link name="base_footprint"/>
+
+  <!-- Kachaka chassis (creates base_link, wheels, docking_link, etc.) -->
+  <xacro:kachaka_robot parent="base_footprint">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </xacro:kachaka_robot>
+
+  <!--
+    3-tier shelf attached to docking_link.
+    docking_link is a prismatic joint (lift mechanism); placing the shelf as its
+    child means the shelf rises and falls with the lift, matching real operation.
+  -->
+  <xacro:shelf_3tier parent="docking_link"/>
+
+  <!-- Ouster OS-1 mounted at the shelf top -->
+  <xacro:ouster_os1 parent="shelf_top">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </xacro:ouster_os1>
+
+</robot>
+```
+
+- [ ] **Step 5: ビルドと xacro 展開検証**
 
 実行コマンド:
 ```bash
 cd ~/ros/jazzy
 colcon build --packages-select kachaka_autoware_description
+source install/setup.bash
+xacro src/kachaka-api/ros2/kachaka_autoware_description/urdf/kachaka_with_shelf.urdf.xacro > /tmp/kachaka_with_shelf.urdf
+echo "xacro exit: $?"
+grep -c "<link " /tmp/kachaka_with_shelf.urdf
+grep -c "<joint " /tmp/kachaka_with_shelf.urdf
+grep -E "shelf_(base_link|top|fl_post|bottom_board)" /tmp/kachaka_with_shelf.urdf
+grep -E "os1_(sensor|lidar|imu)" /tmp/kachaka_with_shelf.urdf
 ```
 
-期待結果: `Summary: 1 package finished`
+期待結果:
+- `xacro exit: 0`
+- link 数 ≥ 18（Kachaka 既存 9 link + shelf 9 link + os1 3 link）
+- joint 数 ≥ 17
+- `shelf_*`, `os1_*` の link がそれぞれ少なくとも 1 件ずつ grep でヒットする
 
-- [ ] **Step 5: コミット**
+- [ ] **Step 6: コミット**
 
 実行コマンド:
 ```bash
 cd ~/src/kachaka-api
 git add ros2/kachaka_autoware_description/
 git commit -m "$(cat <<'EOF'
-feat(description): scaffold kachaka_autoware_description package
+feat(description): kachaka_autoware_description with shelf + OS-1 URDF
 
-Empty package skeleton; URDF, vehicle_info config, and launch files are
-added in subsequent tasks.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-EOF
-)"
-```
-
----
-
-### Task 7: shelf_with_ouster.urdf.xacro と kachaka_autoware.urdf.xacro
-
-**目的:** base_link → shelf_dock_link → os1_sensor の static joint を持つ URDF を作る。Kachaka 既存 URDF を include する。
-
-**Files:**
-- Create: `ros2/kachaka_autoware_description/urdf/shelf_with_ouster.urdf.xacro`
-- Create: `ros2/kachaka_autoware_description/urdf/kachaka_autoware.urdf.xacro`
-
-- [ ] **Step 1: shelf_with_ouster.urdf.xacro を作成**
-
-`/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_description/urdf/shelf_with_ouster.urdf.xacro`:
-
-```xml
-<?xml version="1.0"?>
-<robot name="shelf_with_ouster" xmlns:xacro="http://ros.org/wiki/xacro">
-
-  <!-- Calibration values measured in Task 4 -->
-  <!-- Update these with the actual offset from base_footprint to os1_sensor. -->
-  <xacro:property name="os1_x" value="0.10"/>
-  <xacro:property name="os1_y" value="0.00"/>
-  <xacro:property name="os1_z" value="0.85"/>
-  <xacro:property name="os1_roll" value="0.0"/>
-  <xacro:property name="os1_pitch" value="0.0"/>
-  <xacro:property name="os1_yaw" value="0.0"/>
-
-  <xacro:macro name="shelf_with_ouster" params="parent">
-    <!-- Shelf dock link: a fixed virtual link representing the shelf-mount on Kachaka -->
-    <link name="shelf_dock_link"/>
-    <joint name="shelf_dock_joint" type="fixed">
-      <parent link="${parent}"/>
-      <child link="shelf_dock_link"/>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-    </joint>
-
-    <!-- Ouster OS-1 sensor frame -->
-    <link name="os1_sensor"/>
-    <joint name="os1_mount_joint" type="fixed">
-      <parent link="shelf_dock_link"/>
-      <child link="os1_sensor"/>
-      <origin xyz="${os1_x} ${os1_y} ${os1_z}" rpy="${os1_roll} ${os1_pitch} ${os1_yaw}"/>
-    </joint>
-
-    <!-- Frames the ouster-ros driver expects to find -->
-    <link name="os1_lidar"/>
-    <joint name="os1_lidar_joint" type="fixed">
-      <parent link="os1_sensor"/>
-      <child link="os1_lidar"/>
-      <origin xyz="0 0 0.03618" rpy="0 0 0"/>
-    </joint>
-
-    <link name="os1_imu"/>
-    <joint name="os1_imu_joint" type="fixed">
-      <parent link="os1_sensor"/>
-      <child link="os1_imu"/>
-      <origin xyz="0.006253 -0.011775 0.007645" rpy="0 0 0"/>
-    </joint>
-  </xacro:macro>
-
-</robot>
-```
-
-注意: `os1_lidar` の z オフセット 0.03618 は Ouster の datasheet に書かれた lidar origin と sensor origin の関係。`os1_imu` のオフセットも同様に datasheet 値。
-
-- [ ] **Step 2: kachaka_autoware.urdf.xacro を作成（Kachaka既存 URDF を include）**
-
-`/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_description/urdf/kachaka_autoware.urdf.xacro`:
-
-```xml
-<?xml version="1.0"?>
-<robot name="kachaka_autoware" xmlns:xacro="http://ros.org/wiki/xacro">
-
-  <xacro:include filename="$(find kachaka_description)/urdf/_kachaka.urdf.xacro"/>
-  <xacro:include filename="$(find kachaka_autoware_description)/urdf/shelf_with_ouster.urdf.xacro"/>
-
-  <!-- root frame -->
-  <link name="base_footprint"/>
-
-  <!-- Kachaka body -->
-  <xacro:kachaka_robot parent="base_footprint">
-    <origin xyz="0 0 0" rpy="0 0 0"/>
-  </xacro:kachaka_robot>
-
-  <!-- Shelf with Ouster OS-1, mounted on Kachaka base_link -->
-  <xacro:shelf_with_ouster parent="base_link"/>
-
-</robot>
-```
-
-- [ ] **Step 3: xacro が文法エラー無く展開できることを確認**
-
-実行コマンド:
-```bash
-cd ~/ros/jazzy
-source install/setup.bash
-xacro src/kachaka-api/ros2/kachaka_autoware_description/urdf/kachaka_autoware.urdf.xacro > /tmp/kachaka_autoware.urdf
-echo "Exit: $?"
-grep -c "<joint" /tmp/kachaka_autoware.urdf
-grep -c "<link" /tmp/kachaka_autoware.urdf
-```
-
-期待結果: Exit 0、`<joint>` 数 ≥ 5、`<link>` 数 ≥ 8（base_footprint, base_link, 左右ホイール, ..., shelf_dock_link, os1_sensor, os1_lidar, os1_imu）
-
-失敗時: xacro エラーメッセージを読む。`kachaka_description` の include path が見つからない場合は `colcon build --packages-up-to kachaka_autoware_description` でビルドし install/setup.bash を source し直す。
-
-- [ ] **Step 4: コミット**
-
-実行コマンド:
-```bash
-cd ~/src/kachaka-api
-git add ros2/kachaka_autoware_description/urdf/
-git commit -m "$(cat <<'EOF'
-feat(description): add Kachaka + shelf-mounted Ouster OS-1 URDF
-
-shelf_with_ouster.urdf.xacro defines the static base_link → shelf_dock
-→ os1_sensor TF chain. Calibration values are placeholders to be tuned
-in M2 if NDT fails to converge.
+- _ouster_os1.urdf.xacro: simplified OS-1 128 model (cylinder body +
+  lidar/imu frames per Ouster ICD offsets)
+- kachaka_with_shelf.urdf.xacro: full robot URDF combining Kachaka
+  chassis, 3-tier shelf attached to docking_link, and OS-1 on shelf_top
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -805,7 +967,7 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     pkg = get_package_share_directory("kachaka_autoware_description")
-    xacro_path = os.path.join(pkg, "urdf", "kachaka_autoware.urdf.xacro")
+    xacro_path = os.path.join(pkg, "urdf", "kachaka_with_shelf.urdf.xacro")
 
     namespace_arg = DeclareLaunchArgument(
         "namespace", default_value="", description="Robot namespace prefix"
@@ -853,7 +1015,7 @@ sleep 5
 kill %1 %2 2>/dev/null
 ```
 
-期待結果: `/robot_description` トピックに URDF が流れる。`/tmp/frames.pdf` に base_footprint → base_link → ... → os1_sensor のツリーが描画される（`view_frames` が PDF 出力するならその確認、出さない場合は `ros2 run tf2_ros tf2_echo base_footprint os1_sensor` で transform が取れることで代替）
+期待結果: `/robot_description` トピックに URDF が流れる。TF tree に base_footprint → base_link → docking_link → shelf_base_link → shelf_top → os1_sensor が見える。`ros2 run tf2_ros tf2_echo base_footprint os1_sensor` で transform が取れる（z は 約 0.107 (docking_link) + 0.50 (shelf height) ≈ 0.61 m）
 
 - [ ] **Step 5: コミット**
 
@@ -1060,9 +1222,11 @@ ros2 launch kachaka_autoware_description robot_description.launch.py
 実行コマンド:
 ```bash
 ros2 run tf2_ros tf2_echo base_footprint os1_sensor
+ros2 run tf2_ros tf2_echo base_footprint shelf_top
+ros2 run tf2_ros tf2_echo shelf_top os1_sensor
 ```
 
-期待結果: 数値が出力される（Task 7 で書いた x=0.10, z=0.85 等）
+期待結果: `base_footprint → os1_sensor` の z は概ね 0.50 m（shelf height）+ 0 (os1 mount offset) ≈ 0.50 m。`shelf_top → os1_sensor` は Task 4 で実測した OS-1 取付オフセット（中央取付なら全成分 0）。
 
 - [ ] **Step 3: RViz2 で点群を可視化**
 
@@ -1080,14 +1244,20 @@ RViz の操作:
 
 - [ ] **Step 4: コミット — 検証ノート追加（任意）**
 
-このタスクで修正があるとすれば URDF のキャリブ値の微調整。微調整したらコミット:
+このタスクで修正があるとすれば URDF のキャリブ値の微調整:
+- シェルフ寸法 default: `kachaka_description/urdf/_shelf_3tier.urdf.xacro` の `depth` / `width` / `height` default を実測値に合わせる
+- OS-1 取付 origin: `kachaka_autoware_description/urdf/kachaka_with_shelf.urdf.xacro` の `<xacro:ouster_os1>` の `<origin>` を実測値に合わせる
+
+微調整したらコミット:
 
 ```bash
 cd ~/src/kachaka-api
-git add ros2/kachaka_autoware_description/urdf/shelf_with_ouster.urdf.xacro
-git commit -m "fix(description): tune base_footprint→os1_sensor calibration values
+git add ros2/kachaka_description/urdf/_shelf_3tier.urdf.xacro \
+        ros2/kachaka_autoware_description/urdf/kachaka_with_shelf.urdf.xacro
+git commit -m "fix(description): tune shelf and OS-1 calibration values
 
-Adjusted from Task 11 visual inspection in RViz.
+Adjusted from Task 11 visual inspection in RViz against the live OS-1
+point cloud.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
@@ -3456,9 +3626,10 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 | §3.3-1 pointcloud_map | Task 2 |
 | §3.3-2 lanelet2 | Task 3 |
 | §3.3-3 OS-1 物理固定 | Task 4 |
-| §4.2 TF tree | Task 7-8 (URDF) |
+| §4.2 TF tree (docking_link → shelf → os1) | Task 6, 7 (URDF) |
 | §4.3 座標系整合 | Task 3 (Vector Map Builder で整合) |
-| §5 新規パッケージ構成 | Task 5, 6, 10, 12 |
+| §5 kachaka_description 改良 | Task 6 |
+| §5 新規パッケージ構成 | Task 5, 7, 10, 12 |
 | §6 Localization | Task 14, 16 |
 | §6.1 wheel_odometry 検証 | Task 16 Step 5, Task 17 |
 | §7 Planning | Task 32 |
