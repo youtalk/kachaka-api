@@ -2,122 +2,122 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Kachaka を Autoware Core のスタック（NDT localization / lanelet2 planning / simple_pure_pursuit control / AD-API）で自律移動させる。MVP は RViz の Autoware 標準UIで 2D Goal Pose を 1 点指定すると Kachaka が目標到達すること。
+**Goal:** Drive Kachaka autonomously using the Autoware Core stack (NDT localization / lanelet2 planning / simple_pure_pursuit control / AD-API). The MVP target is: pick a single 2D Goal Pose in the standard Autoware RViz UI and have Kachaka reach it.
 
-**Architecture:** kachaka-api リポジトリの `ros2/` 配下に 4 個の新規パッケージ（`kachaka_autoware_bridge`, `kachaka_autoware_vehicle_interface`, `kachaka_autoware_description`, `kachaka_autoware_maps`）を追加し、既存の `kachaka_grpc_ros2_bridge` と Autoware Core を Vehicle Interface ノード経由で繋ぐ。Vehicle Interface は `autoware_control_msgs/Control`（Ackermann）→ `geometry_msgs/Twist`（差動駆動）変換、`/vehicle/status/velocity_status` 発行、Operation Mode 簡易状態機械、ManualControl 自動有効化を担う。
+**Architecture:** Add four new packages under `ros2/` in the kachaka-api repository (`kachaka_autoware_bridge`, `kachaka_autoware_vehicle_interface`, `kachaka_autoware_description`, `kachaka_autoware_maps`) and connect the existing `kachaka_grpc_ros2_bridge` to Autoware Core through a Vehicle Interface node. The Vehicle Interface is responsible for converting `autoware_control_msgs/Control` (Ackermann) to `geometry_msgs/Twist` (differential drive), publishing `/vehicle/status/velocity_status`, running a simple Operation Mode state machine, and auto-enabling ManualControl.
 
-**Tech Stack:** ROS 2 Jazzy / C++17 / `rclcpp` / `ament_cmake_auto` / gtest（`ament_cmake_gtest`）/ launch_xml / Autoware Core (autoware_core_localization / planning / control / api) / autoware_rviz_plugins / ouster-ros driver / Vector Map Builder（外部）/ lio_sam or fast_lio or glim（外部、M0で選択）
+**Tech Stack:** ROS 2 Jazzy / C++17 / `rclcpp` / `ament_cmake_auto` / gtest (`ament_cmake_gtest`) / launch_xml / Autoware Core (autoware_core_localization / planning / control / api) / autoware_rviz_plugins / ouster-ros driver / Vector Map Builder (external) / lio_sam or fast_lio or glim (external, picked in M0).
 
-**前提となるユーザー側ハードウェア / 環境:**
-- Kachaka 本体: 192.168.1.91、gRPC API port 26400、SW 3.16+
-- Jetson Thor（Ubuntu 24.04 + ROS 2 Jazzy、ROS_DOMAIN_ID=123、ws=`~/ros/jazzy`）
-- Ouster OS-1 128（シェルフに固定済 / 固定予定）
-- 開発 PC（Jazzy + RViz2、同一 ROS_DOMAIN_ID）
-- **Kachakaの 2D LiDAR は故障**（Kachaka 内蔵 SLAM・地図作成・自己位置推定を使用しない）
+**User-side hardware / environment prerequisites:**
+- Kachaka unit: 192.168.1.91, gRPC API port 26400, SW 3.16+
+- Jetson Thor (Ubuntu 24.04 + ROS 2 Jazzy, ROS_DOMAIN_ID=123, ws=`~/ros/jazzy`)
+- Ouster OS-1 128 (already mounted on the shelf, or to be mounted)
+- Development PC (Jazzy + RViz2, same ROS_DOMAIN_ID)
+- **The Kachaka built-in 2D LiDAR is not used** (this stack does not depend on Kachaka's built-in SLAM, mapping, or localization)
 
-**前提となるリポジトリ:**
-- `~/src/kachaka-api` (本リポジトリ)
-- `~/src/autoware_core` (clone 済)
-- `~/ros/jazzy/src/` 配下に他依存パッケージを clone
+**Repository prerequisites:**
+- `~/src/kachaka-api` (this repository)
+- `~/src/autoware_core` (already cloned)
+- Other dependency packages cloned under `~/ros/jazzy/src/`
 
 ---
 
 ## File Structure
 
-### 新規パッケージ（kachaka-api リポジトリ内）
+### New packages (inside the kachaka-api repository)
 
 ```
 ros2/
-├── kachaka_autoware_bridge/                              # メタ + 統合 launch
-│   ├── package.xml                                       # 依存: 他3パッケージ + autoware_core_*
+├── kachaka_autoware_bridge/                              # meta + integrated launch
+│   ├── package.xml                                       # depends on the other 3 packages + autoware_core_*
 │   ├── CMakeLists.txt
 │   └── launch/
-│       └── kachaka_autoware.launch.xml                   # 全部入りエントリ。bridge + Autoware Core 全部
+│       └── kachaka_autoware.launch.xml                   # all-in-one entry: bridge + full Autoware Core
 │
-├── kachaka_autoware_vehicle_interface/                   # ★ 中核
-│   ├── package.xml                                       # 依存: rclcpp / autoware_control_msgs / autoware_vehicle_msgs / autoware_adapi_v1_msgs / geometry_msgs / nav_msgs / std_srvs
+├── kachaka_autoware_vehicle_interface/                   # core component
+│   ├── package.xml                                       # depends on rclcpp / autoware_control_msgs / autoware_vehicle_msgs / autoware_adapi_v1_msgs / geometry_msgs / nav_msgs / std_srvs
 │   ├── CMakeLists.txt
 │   ├── include/kachaka_autoware_vehicle_interface/
-│   │   ├── control_to_twist_converter.hpp               # Control msg → Twist 変換ロジック（純粋関数）
-│   │   ├── operation_mode_state_machine.hpp             # STOP / AUTONOMOUS の簡易 state machine
-│   │   ├── velocity_status_publisher.hpp                # Odometry → VelocityReport 変換
-│   │   └── vehicle_interface_node.hpp                   # rclcpp::Node サブクラス
+│   │   ├── control_to_twist_converter.hpp               # Control msg -> Twist conversion (pure function)
+│   │   ├── operation_mode_state_machine.hpp             # simple STOP / AUTONOMOUS state machine
+│   │   ├── velocity_status_publisher.hpp                # Odometry -> VelocityReport conversion
+│   │   └── vehicle_interface_node.hpp                   # rclcpp::Node subclass
 │   ├── src/
 │   │   ├── control_to_twist_converter.cpp
 │   │   ├── operation_mode_state_machine.cpp
 │   │   ├── velocity_status_publisher.cpp
-│   │   ├── vehicle_interface_node.cpp                   # サブモジュールの組み立てと ROS I/O
+│   │   ├── vehicle_interface_node.cpp                   # composes submodules and wires ROS I/O
 │   │   └── main.cpp                                     # rclcpp::spin
 │   ├── launch/
 │   │   └── vehicle_interface.launch.xml
 │   ├── config/
 │   │   └── vehicle_interface.param.yaml
 │   └── test/
-│       ├── CMakeLists.txt                                # test 単独 CMake fragment
-│       ├── test_control_to_twist_converter.cpp          # 純粋ロジックの境界値テスト
-│       ├── test_operation_mode_state_machine.cpp        # 状態遷移テスト
-│       └── test_velocity_status_publisher.cpp           # Odometry → VelocityReport 変換テスト
+│       ├── CMakeLists.txt                                # standalone test CMake fragment
+│       ├── test_control_to_twist_converter.cpp          # boundary-value tests for pure logic
+│       ├── test_operation_mode_state_machine.cpp        # state transition tests
+│       └── test_velocity_status_publisher.cpp           # Odometry -> VelocityReport conversion tests
 │
 ├── kachaka_autoware_description/                         # URDF + vehicle_info
-│   ├── package.xml                                       # 依存: kachaka_description / xacro / ouster_description
+│   ├── package.xml                                       # depends on kachaka_description / xacro / ouster_description
 │   ├── CMakeLists.txt
 │   ├── urdf/
-│   │   ├── kachaka_autoware.urdf.xacro                  # kachaka.urdf.xacro を include + シェルフ追加
-│   │   └── shelf_with_ouster.urdf.xacro                 # base_link → shelf_dock_link → os1_sensor の static joint
+│   │   ├── kachaka_autoware.urdf.xacro                  # includes kachaka.urdf.xacro and adds the shelf
+│   │   └── shelf_with_ouster.urdf.xacro                 # static joint chain base_link -> shelf_dock_link -> os1_sensor
 │   ├── config/
-│   │   └── vehicle_info.param.yaml                      # 差動駆動向け仮想値
+│   │   └── vehicle_info.param.yaml                      # virtual values tuned for differential drive
 │   └── launch/
-│       └── robot_description.launch.py                  # robot_state_publisher 起動
+│       └── robot_description.launch.py                  # launches robot_state_publisher
 │
-└── kachaka_autoware_maps/                                # サンプル + 手順書
+└── kachaka_autoware_maps/                                # samples + instructions
     ├── package.xml
     ├── CMakeLists.txt
-    └── README.md                                         # M0 の手順書（user_dir/maps の指示）
+    └── README.md                                         # M0 instructions (pointing at user_dir/maps)
 ```
 
-### 各責務（split by responsibility, not technical layer）
+### Responsibilities (split by responsibility, not technical layer)
 
-- **`control_to_twist_converter`**: 純粋関数 `Twist convert(const Control&, params)`。ROS に依存しない。テストしやすさ最優先。
-- **`operation_mode_state_machine`**: 純粋クラス `OperationModeStateMachine`。状態遷移ロジック、`get_state()`, `request_autonomous()`, `request_stop()`。`rclcpp::Node` 非依存。
-- **`velocity_status_publisher`**: 純粋関数 `VelocityReport convert(const Odometry&)`。ROS msgs だが node 非依存。
-- **`vehicle_interface_node`**: 上記サブモジュールを所有する `rclcpp::Node`。subscriber/publisher/service/timer の配線のみ。ロジックを含まない。
+- **`control_to_twist_converter`**: pure function `Twist convert(const Control&, params)`. No ROS dependency. Optimised for testability.
+- **`operation_mode_state_machine`**: pure class `OperationModeStateMachine`. State transition logic; `get_state()`, `request_autonomous()`, `request_stop()`. Independent of `rclcpp::Node`.
+- **`velocity_status_publisher`**: pure function `VelocityReport convert(const Odometry&)`. Uses ROS msgs but is node-independent.
+- **`vehicle_interface_node`**: `rclcpp::Node` that owns the submodules above. Only wires subscribers/publishers/services/timers; contains no logic.
 
-この分離により、サブモジュール単体で gtest でき、将来 `operation_mode_state_machine` を Universe の `autoware_command_mode_decider` に置き換える際は `vehicle_interface_node` の組み立てを差し替えるだけで済む。
+This separation lets each submodule be unit-tested with gtest. When `operation_mode_state_machine` is replaced by Universe's `autoware_command_mode_decider`, only the composition inside `vehicle_interface_node` needs to change.
 
-### 外部 clone するパッケージ（既に手順は仕様書 §10.2）
+### External packages to clone (procedure already in spec §10.2)
 
-- `autoware_rviz_plugins` を `~/ros/jazzy/src/autoware_rviz_plugins/` に clone
-- `ouster-ros` を `~/ros/jazzy/src/ouster-ros/` に clone（公式: https://github.com/ouster-lidar/ouster-ros）
-- `~/src/autoware_core` 配下（既存）から `~/ros/jazzy/src/autoware_core` にシンボリックリンク or 直接 clone
+- Clone `autoware_rviz_plugins` into `~/ros/jazzy/src/autoware_rviz_plugins/`
+- Clone `ouster-ros` into `~/ros/jazzy/src/ouster-ros/` (upstream: https://github.com/ouster-lidar/ouster-ros)
+- Symlink (or directly clone) `~/src/autoware_core` to `~/ros/jazzy/src/autoware_core`
 
 ---
 
-## マイルストーンとタスクの対応
+## Milestone-to-Task Mapping
 
 | Milestone | Tasks |
 |---|---|
-| M-1 環境準備 | Task 1 |
-| M0 事前作業 | Task 2-5 |
-| M1 センサー統合 | Task 6-13 |
+| M-1 Environment setup | Task 1 |
+| M0 Pre-work | Task 2-5 |
+| M1 Sensor integration | Task 6-13 |
 | M2 Localization | Task 14-19 |
 | M3 Vehicle Interface | Task 20-37 |
 | M4 Planning | Task 38-42 |
-| M5 閉ループ + 検証 | Task 43-46 |
+| M5 Closed loop + verification | Task 43-46 |
 
 ---
 
 ## Tasks
 
-### Task 1: Workspace bootstrap（M-1）
+### Task 1: Workspace bootstrap (M-1)
 
-**目的:** Thor 上の `~/ros/jazzy` ワークスペースに必要なリポジトリを揃え、apt 依存を入れ、autoware_core / kachaka-api / autoware_rviz_plugins / ouster-ros を一通りビルドできる状態にする。これは「コードを書く」フェーズではなく「環境を整える」フェーズ。
+**Purpose:** Populate `~/ros/jazzy` on Thor with the required repositories, install apt dependencies, and reach a state where autoware_core / kachaka-api / autoware_rviz_plugins / ouster-ros can all be built. This is environment setup, not code writing.
 
 **Files:**
-- 修正なし（外部リポジトリの clone と apt install のみ）
+- No changes (only external repo clones and apt installs)
 
-- [ ] **Step 1: 必要な apt 依存を入れる（仕様書 jazzy_build_caveats.md と同じ）**
+- [ ] **Step 1: Install required apt dependencies (same list as jazzy_build_caveats.md)**
 
-実行コマンド:
+Run:
 ```bash
 sudo apt update
 sudo apt install -y \
@@ -133,11 +133,11 @@ sudo apt install -y \
   python3-colcon-common-extensions
 ```
 
-期待結果: 全パッケージが `Setting up ...` で完了、エラーなし
+Expected result: every package finishes with `Setting up ...` and no errors.
 
-- [ ] **Step 2: `~/ros/jazzy/src` を作って autoware_core / kachaka-api をリンク**
+- [ ] **Step 2: Create `~/ros/jazzy/src` and link autoware_core / kachaka-api into it**
 
-実行コマンド:
+Run:
 ```bash
 mkdir -p ~/ros/jazzy/src
 cd ~/ros/jazzy/src
@@ -145,32 +145,32 @@ ln -sf ~/src/autoware_core autoware_core
 ln -sf ~/src/kachaka-api kachaka-api
 ```
 
-期待結果: `ls -la ~/ros/jazzy/src/` で 2 つのシンボリックリンクが見える
+Expected result: `ls -la ~/ros/jazzy/src/` shows the two symlinks.
 
-- [ ] **Step 3: `autoware_rviz_plugins` を clone**
+- [ ] **Step 3: Clone `autoware_rviz_plugins`**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy/src
 git clone https://github.com/autowarefoundation/autoware_rviz_plugins.git
 ```
 
-期待結果: `ls ~/ros/jazzy/src/autoware_rviz_plugins/package.xml` で見える
+Expected result: `ls ~/ros/jazzy/src/autoware_rviz_plugins/package.xml` exists.
 
-- [ ] **Step 4: `ouster-ros` を clone（jazzy ブランチ）**
+- [ ] **Step 4: Clone `ouster-ros` (ros2 branch)**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy/src
 git clone -b ros2 https://github.com/ouster-lidar/ouster-ros.git
 git -C ouster-ros submodule update --init --recursive
 ```
 
-期待結果: `ls ~/ros/jazzy/src/ouster-ros/ouster_ros/package.xml` で見える
+Expected result: `ls ~/ros/jazzy/src/ouster-ros/ouster_ros/package.xml` exists.
 
-- [ ] **Step 5: rosdep でパッケージ依存を解決**
+- [ ] **Step 5: Resolve package dependencies with rosdep**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 source /opt/ros/jazzy/setup.bash
@@ -178,11 +178,11 @@ rosdep update
 rosdep install --from-paths src --ignore-src -y --rosdistro=jazzy
 ```
 
-期待結果: `All required rosdeps installed successfully`
+Expected result: `All required rosdeps installed successfully`
 
-- [ ] **Step 6: kachaka_grpc_ros2_bridge 用の gen-src を生成**
+- [ ] **Step 6: Generate gen-src for kachaka_grpc_ros2_bridge**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy/src/kachaka-api
 mkdir -p ros2/kachaka_grpc_ros2_bridge/gen-src
@@ -194,11 +194,11 @@ protoc -I protos \
 ls ros2/kachaka_grpc_ros2_bridge/gen-src/
 ```
 
-期待結果: `kachaka-api.grpc.pb.cc kachaka-api.grpc.pb.h kachaka-api.pb.cc kachaka-api.pb.h` の 4 ファイル
+Expected result: 4 files: `kachaka-api.grpc.pb.cc kachaka-api.grpc.pb.h kachaka-api.pb.cc kachaka-api.pb.h`.
 
-- [ ] **Step 7: ベースラインビルド（kachaka_interfaces / kachaka_description / kachaka_grpc_ros2_bridge / autoware_core 系の最低限）**
+- [ ] **Step 7: Baseline build (kachaka_interfaces / kachaka_description / kachaka_grpc_ros2_bridge / minimum autoware_core set)**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 source /opt/ros/jazzy/setup.bash
@@ -208,11 +208,11 @@ colcon build --symlink-install --packages-up-to \
   autoware_rviz_plugins
 ```
 
-期待結果: `Summary: ... packages finished` でエラー 0、警告は許容
+Expected result: `Summary: ... packages finished` with zero errors. Warnings are tolerated.
 
-- [ ] **Step 8: 動作確認 — kachaka_grpc_ros2_bridge が起動する**
+- [ ] **Step 8: Smoke test — kachaka_grpc_ros2_bridge starts up**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 source install/setup.bash
@@ -223,51 +223,51 @@ ros2 topic list | grep -E "(kachaka|tf)"
 kill %1 2>/dev/null
 ```
 
-期待結果: `/kachaka/odometry/odometry`, `/kachaka/imu/imu`, `/tf` などのトピックが出る
+Expected result: topics such as `/kachaka/odometry/odometry`, `/kachaka/imu/imu`, `/tf` appear.
 
-- [ ] **Step 9: コミット（修正がある場合のみ）**
+- [ ] **Step 9: Commit (only if there are changes)**
 
-修正がなければ skip。本タスクは外部依存セットアップなのでリポジトリへの変更は基本的に発生しない。
+Skip if there are no changes. This task is external-dependency setup and normally produces no repository changes.
 
 ---
 
-### Task 2: M0-A — pointcloud_map の作成
+### Task 2: M0-A — Build the pointcloud_map
 
-**目的:** OS-1 128 単独で自宅をマッピングし、`pointcloud_map.pcd` + `pointcloud_map/metadata.yaml` を生成する。Kachaka の 2D LiDAR は故障しているため使えない。
+**Purpose:** Use the OS-1 128 alone to map the home and produce `pointcloud_map.pcd` + `pointcloud_map/metadata.yaml`. The Kachaka 2D LiDAR cannot be used in this pipeline.
 
 **Files:**
-- 出力: `~/maps/kachaka_home/pointcloud_map.pcd`
-- 出力: `~/maps/kachaka_home/pointcloud_map/metadata.yaml`
+- Output: `~/maps/kachaka_home/pointcloud_map.pcd`
+- Output: `~/maps/kachaka_home/pointcloud_map/metadata.yaml`
 
-- [ ] **Step 1: SLAM ツールを 1 つ選んで `~/ros/jazzy/src` に clone**
+- [ ] **Step 1: Pick one SLAM tool and clone it into `~/ros/jazzy/src`**
 
-候補（仕様書 §3.3 / 16）:
-- `glim`（Jazzy対応・3D LiDAR + IMU、推奨）: https://github.com/koide3/glim
+Candidates (spec §3.3 / 16):
+- `glim` (Jazzy-compatible, 3D LiDAR + IMU, recommended): https://github.com/koide3/glim
 - `fast_lio`: https://github.com/hku-mars/FAST_LIO
 - `lio_sam`: https://github.com/TixiaoShan/LIO-SAM
 
-`glim` を採用するなら:
+If using `glim`:
 ```bash
 cd ~/ros/jazzy/src
 git clone https://github.com/koide3/glim.git
 git clone https://github.com/koide3/glim_ros2.git
 ```
 
-期待結果: clone 完了。READMEの apt 依存を読んで揃える。
+Expected result: clone succeeds. Read the README and install its apt dependencies.
 
-- [ ] **Step 2: SLAM ツールをビルド**
+- [ ] **Step 2: Build the SLAM tool**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 colcon build --symlink-install --packages-up-to glim_ros2
 ```
 
-期待結果: ビルド成功
+Expected result: build succeeds.
 
-- [ ] **Step 3: OS-1 128 を Thor に有線接続し、ouster-ros driver で点群を発行**
+- [ ] **Step 3: Connect OS-1 128 to Thor over Ethernet and publish points via the ouster-ros driver**
 
-実行コマンド:
+Run:
 ```bash
 source ~/ros/jazzy/install/setup.bash
 ros2 launch ouster_ros sensor.launch.xml \
@@ -277,27 +277,27 @@ sleep 5
 ros2 topic hz /ouster/points
 ```
 
-期待結果: 約 10-20 Hz で点群がpublishされる。`/ouster/imu` も同様に出る。
+Expected result: points publish at roughly 10-20 Hz. `/ouster/imu` also publishes.
 
-OS-1 のホスト名 / IP はユーザー固有なので `os-XXXXXX.local` を実機の値に置き換える。
+The OS-1 hostname / IP is user-specific; replace `os-XXXXXX.local` with the value for your unit.
 
-- [ ] **Step 4: Kachaka に OS-1 を載せて手押し or テレオペでマッピング走行を行う**
+- [ ] **Step 4: Mount OS-1 on Kachaka and drive a mapping pass manually (push or teleop)**
 
-走行手順（手動操作、コードなし）:
-1. Kachaka を `set_manual_control_enabled(true)` にしてから手押し or `kachaka_grpc_ros2_bridge/manual_control` 経由でテレオペ
-2. 自宅の通行可能領域を全部回る（直線・曲がり・部屋の隅まで）
-3. 走行中に SLAM ツールで pointcloud_map を生成（glim なら `glim_rosnode` を起動した状態で rosbag record も並行）
-4. ループクローズが取れる経路で開始点に戻る
+Procedure (manual, no code):
+1. Set Kachaka to `set_manual_control_enabled(true)`, then push it by hand or teleop via `kachaka_grpc_ros2_bridge/manual_control`.
+2. Cover every navigable area of the home (straight lines, turns, room corners).
+3. Run the SLAM tool to build the pointcloud map during the drive (with glim, run `glim_rosnode` and `rosbag record` in parallel).
+4. Close the loop by returning to the starting point.
 
-期待結果: rosbag に OS-1 点群と IMU が完全に録画される。
+Expected result: the rosbag contains a complete recording of OS-1 points and IMU.
 
-- [ ] **Step 5: pointcloud_map.pcd を保存し metadata.yaml を作成**
+- [ ] **Step 5: Save pointcloud_map.pcd and write metadata.yaml**
 
-glim の場合:
+For glim:
 ```bash
 mkdir -p ~/maps/kachaka_home/pointcloud_map
-# glim の出力を ~/maps/kachaka_home/pointcloud_map.pcd に保存
-# metadata.yaml は autoware_map_loader が要求する形式で手書き
+# Save glim's output to ~/maps/kachaka_home/pointcloud_map.pcd
+# Write metadata.yaml in the format autoware_map_loader expects
 cat > ~/maps/kachaka_home/pointcloud_map/metadata.yaml <<'EOF'
 x_resolution: 50.0
 y_resolution: 50.0
@@ -305,52 +305,52 @@ A.pcd: [0, 0]
 EOF
 ```
 
-期待結果: `~/maps/kachaka_home/` 配下に `pointcloud_map.pcd` と `pointcloud_map/metadata.yaml` がある。pointcloud_map.pcd はファイルサイズ 100 MB 〜 数 GB（屋内範囲依存）。
+Expected result: `~/maps/kachaka_home/` contains `pointcloud_map.pcd` and `pointcloud_map/metadata.yaml`. The pcd is roughly 100 MB to a few GB depending on indoor coverage.
 
-実装ノート: Autoware の `autoware_map_loader` は分割マップを期待するので、上記 metadata.yaml は **単一マップを 1 タイル** として扱う最小設定。詳細は `autoware_map_loader` のドキュメント参照。
+Implementation note: Autoware's `autoware_map_loader` expects split tile maps, so the metadata.yaml above is the minimal config that treats the **single map as one tile**. See the `autoware_map_loader` docs for details.
 
-- [ ] **Step 6: コミットなし — マップは外部に置く（リポジトリに含めない）**
+- [ ] **Step 6: No commit — maps live outside the repository**
 
-理由: pointcloud_map.pcd はリポジトリには大きすぎる。`kachaka_autoware_maps/README.md` に置き場所を書く（Task 5 で作成）。
+Reason: pointcloud_map.pcd is too large for the repository. The location is documented in `kachaka_autoware_maps/README.md` (created in Task 5).
 
 ---
 
-### Task 3: M0-B — lanelet2 vector_map の作成
+### Task 3: M0-B — Build the lanelet2 vector_map
 
-**目的:** Vector Map Builder で自宅の通行可能領域に最小限のレーンを引き、`lanelet2_map.osm` + `map_projector_info.yaml` を生成する。pointcloud_map と同一の local projection 原点で生成する。
+**Purpose:** Use Vector Map Builder to draw minimal lanes over the navigable area of the home and produce `lanelet2_map.osm` + `map_projector_info.yaml`. Use the same local projection origin as the pointcloud_map.
 
 **Files:**
-- 出力: `~/maps/kachaka_home/lanelet2_map.osm`
-- 出力: `~/maps/kachaka_home/map_projector_info.yaml`
+- Output: `~/maps/kachaka_home/lanelet2_map.osm`
+- Output: `~/maps/kachaka_home/map_projector_info.yaml`
 
-- [ ] **Step 1: Vector Map Builder（TIER IV、Web ツール）を開く**
+- [ ] **Step 1: Open Vector Map Builder (TIER IV web tool)**
 
-ブラウザで https://tools.tier4.jp/vector_map_builder_ll2/ を開く（または最新URLは TIER IV ドキュメント参照）。
+Open https://tools.tier4.jp/vector_map_builder_ll2/ in a browser (or look up the latest URL in the TIER IV docs).
 
-- [ ] **Step 2: pointcloud_map.pcd を import して背景表示**
+- [ ] **Step 2: Import pointcloud_map.pcd as the background**
 
-Vector Map Builder の「Load PCD」で Task 2 で作った `pointcloud_map.pcd` を読み込む。
+Use Vector Map Builder's "Load PCD" to load the `pointcloud_map.pcd` produced in Task 2.
 
-期待結果: 自宅の点群が画面上に表示される。
+Expected result: the home pointcloud is displayed on screen.
 
-- [ ] **Step 3: 通行可能領域に Lane を最小限引く**
+- [ ] **Step 3: Draw minimal lanes through the navigable area**
 
-操作:
-1. 1 部屋から別部屋への直線レーンを 1 〜 2 本引く（最小限）
-2. 各 Lane の幅は Kachaka の幅（0.387m）+ マージンで `0.6m` 程度
-3. 速度制限は `0.3 m/s`（Kachaka の最大線速度）
+Steps:
+1. Draw 1-2 straight lanes from one room to another (keep it minimal).
+2. Each lane width = Kachaka body width (0.387 m) + margin, around `0.6 m`.
+3. Speed limit: `0.3 m/s` (Kachaka's maximum linear velocity).
 
-期待結果: lanelet2 上で route が引ける状態。
+Expected result: a routable lanelet2 layout.
 
-- [ ] **Step 4: lanelet2_map.osm を export**
+- [ ] **Step 4: Export lanelet2_map.osm**
 
-Vector Map Builder の「Export」で `lanelet2_map.osm` をダウンロードし、`~/maps/kachaka_home/lanelet2_map.osm` に保存。
+Use Vector Map Builder's "Export" to download `lanelet2_map.osm` and save it as `~/maps/kachaka_home/lanelet2_map.osm`.
 
-期待結果: ファイルが保存される（通常 KB オーダー）。
+Expected result: file saved (typically a few KB).
 
-- [ ] **Step 5: map_projector_info.yaml を作成**
+- [ ] **Step 5: Create map_projector_info.yaml**
 
-実行コマンド:
+Run:
 ```bash
 cat > ~/maps/kachaka_home/map_projector_info.yaml <<'EOF'
 projector_type: Local
@@ -358,77 +358,77 @@ vertical_datum: WGS84
 EOF
 ```
 
-注意: `projector_type: Local` は GNSS 不要の屋内向け設定。Vector Map Builder の export 時に「Local Cartesian」を選んだ前提。
+Note: `projector_type: Local` is the GNSS-free indoor setup, assuming "Local Cartesian" was selected during Vector Map Builder export.
 
-期待結果: ファイルが保存される。
+Expected result: file saved.
 
-- [ ] **Step 6: pointcloud_map との原点整合確認**
+- [ ] **Step 6: Verify origin alignment with pointcloud_map**
 
-確認手順（人手）:
-1. RViz で pointcloud_map.pcd（pcl_ros の `pcd_to_pointcloud`）と lanelet2_map（`autoware_lanelet2_map_visualizer`）を同じ座標系（map）で重ねて表示
-2. 部屋の壁の位置と lane の位置がずれていないか目視確認
-3. ずれていたら Vector Map Builder で再調整して export しなおす
+Manual verification:
+1. In RViz, overlay pointcloud_map.pcd (via pcl_ros `pcd_to_pointcloud`) and lanelet2_map (via `autoware_lanelet2_map_visualizer`) in the same `map` frame.
+2. Visually confirm that wall positions and lane positions are aligned.
+3. If misaligned, re-adjust in Vector Map Builder and re-export.
 
-期待結果: pointcloud_map の壁面と lanelet2 のレーンが整合している。
+Expected result: the pointcloud_map walls and lanelet2 lanes are aligned.
 
-- [ ] **Step 7: コミットなし**
+- [ ] **Step 7: No commit**
 
-マップはリポジトリには含めない。
+Maps are not included in the repository.
 
 ---
 
-### Task 4: M0-C — OS-1 物理固定とキャリブ値取得
+### Task 4: M0-C — OS-1 physical mounting and calibration measurements
 
-**目的:** Ouster OS-1 をシェルフ天面に物理的に固定し、`shelf_top → os1_sensor` のオフセット値とシェルフ自身の概略寸法を実測する。Task 6 の `_shelf_3tier.urdf.xacro` の param と Task 7 の `_ouster_os1.urdf.xacro` の `<origin>` に転記する。
+**Purpose:** Physically mount the Ouster OS-1 on top of the shelf and measure the `shelf_top -> os1_sensor` offset and the rough shelf dimensions. The values are transferred into the params of Task 6's `_shelf_3tier.urdf.xacro` and the `<origin>` of Task 7's `_ouster_os1.urdf.xacro`.
 
 **Files:**
-- 出力: メモ（Task 6 のシェルフ寸法 default、Task 7 の OS-1 取付 origin に転記する数値）
+- Output: a notes file (numbers to copy into the Task 6 shelf dimension defaults and the Task 7 OS-1 mount origin)
 
-- [ ] **Step 1: OS-1 をシェルフ天面の中央寄りに固定**
+- [ ] **Step 1: Mount OS-1 near the centre of the shelf top**
 
-物理作業（コードなし）。固定方法はユーザー裁量。注意点:
-- センサーの「前向き」マークが Kachaka の前進方向と一致するように
-- 水平を保つ（傾くと NDT のマッチング精度が落ちる）
-- シェルフ天面の中心からの xy ずれを最小化（モデル化ずれを減らす）
+Physical task (no code). Mounting method is up to the user. Constraints:
+- The "forward" marker of the sensor must align with Kachaka's forward direction.
+- Keep it level; tilt degrades NDT matching accuracy.
+- Minimise xy offset from the centre of the shelf top to reduce model error.
 
-- [ ] **Step 2: メジャーで実寸を測る**
+- [ ] **Step 2: Measure with a tape measure**
 
-人手で計測（後で URDF に反映する数値）:
-- **シェルフ自体の寸法**:
-  - depth (x 方向、前後): メジャー実測。default 0.32 m に対して合っているか
-  - width (y 方向、左右): default 0.38 m に対して合っているか
-  - height (z 方向、シェルフ底面〜天板上面): default 0.50 m に対して合っているか
-- **OS-1 のシェルフ天面に対する取付オフセット**（`shelf_top` 基準）:
-  - x: シェルフ天面中心から OS-1 取付中心までの前方距離（中央なら 0）
-  - y: 同 横方向距離
-  - z: シェルフ天面（板の上面）から OS-1 sensor 原点（円筒下面）までの高さ。通常 0（直接乗せる）
-  - roll/pitch/yaw: 通常 0
-- **base_footprint → docking_link → shelf_base** はすべて (0,0,0) で固定（kachaka_description / _shelf_3tier の前提）。base_footprint から見た OS-1 lidar の高さは「docking_link 高さ + shelf height + OS-1 body_height + lidar_to_sensor_z」で URDF が自動算出する
+Manual measurements (numbers to feed into the URDF):
+- **Shelf dimensions**:
+  - depth (x, fore-aft): measure with a tape; check against default 0.32 m
+  - width (y, left-right): check against default 0.38 m
+  - height (z, from shelf bottom to top board upper surface): check against default 0.50 m
+- **OS-1 mounting offset relative to the shelf top** (`shelf_top` frame):
+  - x: forward distance from the shelf-top centre to the OS-1 mount centre (0 if centred)
+  - y: lateral distance (same convention)
+  - z: height from the shelf top board upper surface to the OS-1 sensor origin (cylinder bottom). Normally 0 (mounted directly).
+  - roll/pitch/yaw: normally 0
+- **base_footprint -> docking_link -> shelf_base** are all fixed at (0,0,0) (the kachaka_description / _shelf_3tier convention). The URDF computes the OS-1 lidar height from base_footprint as `docking_link height + shelf height + OS-1 body_height + lidar_to_sensor_z`.
 
-期待結果: 数値メモ（例 `shelf depth=0.32 / width=0.38 / height=0.50, os1_offset_xyz=0,0,0, rpy=0,0,0`）
+Expected result: numerical notes (e.g. `shelf depth=0.32 / width=0.38 / height=0.50, os1_offset_xyz=0,0,0, rpy=0,0,0`).
 
-- [ ] **Step 3: 計測精度を確認**
+- [ ] **Step 3: Confirm measurement accuracy**
 
-最初は ±2cm / ±2deg 精度で十分。NDT が収束しない場合に M2 で再調整する。
+Initially ±2 cm / ±2 deg is enough. Re-tune in M2 if NDT does not converge.
 
-期待結果: メモ確定。
+Expected result: notes finalised.
 
-- [ ] **Step 4: コミットなし**
+- [ ] **Step 4: No commit**
 
-物理作業のみ。Task 6 のシェルフ寸法 default と Task 7 の OS-1 origin に値を反映する。
+Physical work only. The values are transferred into the Task 6 shelf dimension defaults and the Task 7 OS-1 origin.
 
 ---
 
-### Task 5: kachaka_autoware_maps パッケージ作成 & マップ手順書
+### Task 5: Create the kachaka_autoware_maps package and map preparation guide
 
-**目的:** マップは外部 (`~/maps/kachaka_home/`) に置く運用なので、リポジトリには手順書だけ置く `kachaka_autoware_maps` パッケージを作る。
+**Purpose:** Map files live outside the repository (`~/maps/kachaka_home/`), so the `kachaka_autoware_maps` package only ships the preparation guide.
 
 **Files:**
 - Create: `ros2/kachaka_autoware_maps/package.xml`
 - Create: `ros2/kachaka_autoware_maps/CMakeLists.txt`
 - Create: `ros2/kachaka_autoware_maps/README.md`
 
-- [ ] **Step 1: package.xml を作成**
+- [ ] **Step 1: Create package.xml**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_maps/package.xml`:
 
@@ -449,7 +449,7 @@ EOF
 </package>
 ```
 
-- [ ] **Step 2: CMakeLists.txt を作成**
+- [ ] **Step 2: Create CMakeLists.txt**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_maps/CMakeLists.txt`:
 
@@ -464,22 +464,22 @@ install(FILES README.md DESTINATION share/${PROJECT_NAME})
 ament_package()
 ```
 
-- [ ] **Step 3: README.md を書く**
+- [ ] **Step 3: Write README.md**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_maps/README.md`:
 
 ```markdown
 # kachaka_autoware_maps
 
-Kachaka を Autoware Core で動かすための地図（pointcloud_map.pcd と lanelet2_map.osm）の作成手順書。マップ本体はリポジトリに含まず、ユーザー環境の `~/maps/<location_name>/` 配下に置く運用。
+Guide for preparing the maps (pointcloud_map.pcd and lanelet2_map.osm) needed to drive Kachaka under Autoware Core. The map files themselves are not committed to the repository and live under the user's `~/maps/<location_name>/`.
 
-## 前提
+## Prerequisites
 
-- OS-1 128（または同等の 3D LiDAR）が Kachaka に固定されている
-- ouster-ros driver で点群が発行できる
-- **Kachaka の 2D LiDAR は使用しない**（自宅機は故障している前提）
+- OS-1 128 (or an equivalent 3D LiDAR) is mounted on Kachaka.
+- The ouster-ros driver can publish points.
+- **The Kachaka 2D LiDAR is not used** (this stack does not depend on it).
 
-## ディレクトリ構成
+## Directory layout
 
 ```
 ~/maps/<location_name>/
@@ -490,15 +490,15 @@ Kachaka を Autoware Core で動かすための地図（pointcloud_map.pcd と l
 └── map_projector_info.yaml
 ```
 
-`autoware_core_map.launch.xml` の `lanelet2_map_path`, `pointcloud_map_path`, `pointcloud_map_metadata_path`, `map_projector_info_path` 引数にこれらを渡す。
+Pass these paths to the `lanelet2_map_path`, `pointcloud_map_path`, `pointcloud_map_metadata_path`, and `map_projector_info_path` arguments of `autoware_core_map.launch.xml`.
 
-## 1. pointcloud_map.pcd の作成
+## 1. Building pointcloud_map.pcd
 
-OS-1 単独で 3D SLAM を実行（推奨ツール: `glim`）。詳細は `docs/superpowers/specs/2026-05-02-kachaka-autoware-core-design.md` の §3.3 を参照。
+Run 3D SLAM with the OS-1 alone (recommended tool: `glim`). See `docs/superpowers/specs/2026-05-02-kachaka-autoware-core-design.md` §3.3 for details.
 
-## 2. lanelet2_map.osm の作成
+## 2. Building lanelet2_map.osm
 
-[TIER IV Vector Map Builder](https://tools.tier4.jp/vector_map_builder_ll2/) を使い、pointcloud_map.pcd を背景に lane を引く。**pointcloud_map と同一の local projection 原点で export する**こと。
+Use [TIER IV Vector Map Builder](https://tools.tier4.jp/vector_map_builder_ll2/) to draw lanes on top of pointcloud_map.pcd. **Export with the same local projection origin as the pointcloud_map.**
 
 ## 3. map_projector_info.yaml
 
@@ -507,7 +507,7 @@ projector_type: Local
 vertical_datum: WGS84
 ```
 
-## 4. pointcloud_map/metadata.yaml（単一タイル運用）
+## 4. pointcloud_map/metadata.yaml (single-tile usage)
 
 ```yaml
 x_resolution: 50.0
@@ -515,22 +515,22 @@ y_resolution: 50.0
 A.pcd: [0, 0]
 ```
 
-実装に即しては `autoware_map_loader` のドキュメントを参照。
+For implementation details, see the `autoware_map_loader` documentation.
 ```
 
-- [ ] **Step 4: ビルドが通ることを確認**
+- [ ] **Step 4: Confirm the build passes**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 colcon build --packages-select kachaka_autoware_maps
 ```
 
-期待結果: `Summary: 1 package finished`
+Expected result: `Summary: 1 package finished`
 
-- [ ] **Step 5: コミット**
+- [ ] **Step 5: Commit**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/src/kachaka-api
 git add ros2/kachaka_autoware_maps/
@@ -546,21 +546,21 @@ EOF
 )"
 ```
 
-期待結果: コミット成功
+Expected result: commit succeeds.
 
 ---
 
-### Task 6: kachaka_description の改良 — 純正 3 段シェルフのマクロ追加
+### Task 6: Enhance kachaka_description — add the genuine 3-tier shelf macro
 
-**目的:** Kachaka の純正 3 段シェルフは Kachaka の装備品なので `kachaka_description` パッケージに `_shelf_3tier.urdf.xacro` として追加する。既存の `_kachaka.urdf.xacro` / `_values.urdf.xacro` / `kachaka.urdf.xacro` は破壊変更を避ける（既存ユーザーの URDF 出力を変えない）。シェルフは `docking_link` を起点に取り付けるマクロにし、ドッキング・リフトに追従させる。
+**Purpose:** The Kachaka 3-tier shelf is a first-party accessory, so it is added to the `kachaka_description` package as `_shelf_3tier.urdf.xacro`. The existing `_kachaka.urdf.xacro` / `_values.urdf.xacro` / `kachaka.urdf.xacro` must not change in a breaking way (existing users' URDF output stays the same). The shelf is a macro attached to `docking_link` so it follows docking and lift motion.
 
 **Files:**
-- Modify: `ros2/kachaka_description/urdf/_materials.urdf.xacro` (シェルフ用マテリアル追加)
+- Modify: `ros2/kachaka_description/urdf/_materials.urdf.xacro` (add shelf materials)
 - Create: `ros2/kachaka_description/urdf/_shelf_3tier.urdf.xacro`
 
-- [ ] **Step 1: マテリアル追加**
+- [ ] **Step 1: Add materials**
 
-`/home/youtalk/src/kachaka-api/ros2/kachaka_description/urdf/_materials.urdf.xacro` の `</robot>` 直前に以下の 2 マテリアルを append:
+Append the following two materials to `/home/youtalk/src/kachaka-api/ros2/kachaka_description/urdf/_materials.urdf.xacro` immediately before `</robot>`:
 
 ```xml
   <material name="shelf_board">
@@ -571,7 +571,7 @@ EOF
   </material>
 ```
 
-最終形:
+Final form:
 
 ```xml
 <?xml version="1.0"?>
@@ -594,7 +594,7 @@ EOF
 </robot>
 ```
 
-- [ ] **Step 2: `_shelf_3tier.urdf.xacro` を作成**
+- [ ] **Step 2: Create `_shelf_3tier.urdf.xacro`**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_description/urdf/_shelf_3tier.urdf.xacro`:
 
@@ -602,9 +602,9 @@ EOF
 <?xml version="1.0"?>
 <robot name="shelf_3tier" xmlns:xacro="http://ros.org/wiki/xacro">
   <!--
-    Kachaka 純正 3 段シェルフのマクロ。
-    寸法は概略値。後段で実機計測値に合わせて param 化された値を渡せる。
-    `parent` は通常 docking_link。docking lift に追従するため。
+    Macro for the genuine Kachaka 3-tier shelf.
+    Dimensions are approximate; pass measured values via the macro params.
+    `parent` is normally docking_link so the shelf follows the docking lift.
   -->
   <xacro:macro name="shelf_3tier"
                params="parent
@@ -692,9 +692,9 @@ EOF
 </robot>
 ```
 
-- [ ] **Step 3: 既存 `kachaka.urdf.xacro` の出力が変わらないことを確認**
+- [ ] **Step 3: Confirm the existing `kachaka.urdf.xacro` output is unchanged**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 colcon build --packages-select kachaka_description
@@ -705,11 +705,11 @@ grep -c "<joint" /tmp/kachaka_after.urdf
 grep "shelf" /tmp/kachaka_after.urdf || echo "no shelf in default kachaka — OK"
 ```
 
-期待結果: 既存 link/joint 数が変わっていない。`shelf` が出力に含まれない（kachaka.urdf.xacro はシェルフを include しないので）。
+Expected result: existing link/joint counts are unchanged. `shelf` does not appear in the output (kachaka.urdf.xacro does not include the shelf macro).
 
-- [ ] **Step 4: コミット**
+- [ ] **Step 4: Commit**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/src/kachaka-api
 git add ros2/kachaka_description/urdf/_materials.urdf.xacro \
@@ -728,9 +728,9 @@ EOF
 
 ---
 
-### Task 7: kachaka_autoware_description パッケージ + Ouster + 統合 URDF
+### Task 7: kachaka_autoware_description package + Ouster + integrated URDF
 
-**目的:** 新規パッケージを作り、Ouster OS-1 マクロと、Kachaka + 3 段シェルフ + OS-1 を統合した完全 URDF を作る。
+**Purpose:** Create a new package with the Ouster OS-1 macro and a complete URDF that integrates Kachaka + 3-tier shelf + OS-1.
 
 **Files:**
 - Create: `ros2/kachaka_autoware_description/package.xml`
@@ -783,7 +783,7 @@ install(DIRECTORY urdf config launch
 ament_package()
 ```
 
-- [ ] **Step 3: `_ouster_os1.urdf.xacro` を作成**
+- [ ] **Step 3: Create `_ouster_os1.urdf.xacro`**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_description/urdf/_ouster_os1.urdf.xacro`:
 
@@ -791,9 +791,9 @@ ament_package()
 <?xml version="1.0"?>
 <robot name="ouster_os1" xmlns:xacro="http://ros.org/wiki/xacro">
   <!--
-    Ouster OS-1 (128) 簡易モデル。公式の ouster_description が手に入る場合はそれに置き換え可能。
-    body: 円筒（直径 85mm、高さ 73.5mm）
-    os1_lidar / os1_imu フレームのオフセットは Ouster ICD の値。
+    Simplified Ouster OS-1 (128) model. Replace with the official ouster_description if available.
+    body: cylinder (85 mm diameter, 73.5 mm tall).
+    os1_lidar / os1_imu frame offsets are taken from the Ouster ICD.
   -->
   <xacro:macro name="ouster_os1"
                params="parent
@@ -844,9 +844,9 @@ ament_package()
 </robot>
 ```
 
-注意: `_ouster_os1.urdf.xacro` は `_materials.urdf.xacro` の `black` マテリアルを参照するので、include 順は kachaka 側 → ouster 側 にする必要がある（Step 4 で対応）。
+Note: `_ouster_os1.urdf.xacro` references the `black` material from `_materials.urdf.xacro`, so the include order must be kachaka first, then ouster (handled in Step 4).
 
-- [ ] **Step 4: `kachaka_with_shelf.urdf.xacro` を作成**
+- [ ] **Step 4: Create `kachaka_with_shelf.urdf.xacro`**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_description/urdf/kachaka_with_shelf.urdf.xacro`:
 
@@ -887,9 +887,9 @@ ament_package()
 </robot>
 ```
 
-- [ ] **Step 5: ビルドと xacro 展開検証**
+- [ ] **Step 5: Build and xacro-expansion check**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 colcon build --packages-select kachaka_autoware_description
@@ -902,15 +902,15 @@ grep -E "shelf_(base_link|top|fl_post|bottom_board)" /tmp/kachaka_with_shelf.urd
 grep -E "os1_(sensor|lidar|imu)" /tmp/kachaka_with_shelf.urdf
 ```
 
-期待結果:
+Expected result:
 - `xacro exit: 0`
-- link 数 ≥ 18（Kachaka 既存 9 link + shelf 9 link + os1 3 link）
-- joint 数 ≥ 17
-- `shelf_*`, `os1_*` の link がそれぞれ少なくとも 1 件ずつ grep でヒットする
+- link count >= 18 (Kachaka 9 existing links + shelf 9 links + os1 3 links)
+- joint count >= 17
+- At least one `shelf_*` and one `os1_*` link match grep.
 
-- [ ] **Step 6: コミット**
+- [ ] **Step 6: Commit**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/src/kachaka-api
 git add ros2/kachaka_autoware_description/
@@ -929,15 +929,15 @@ EOF
 
 ---
 
-### Task 8: vehicle_info.param.yaml と robot_description.launch.py
+### Task 8: vehicle_info.param.yaml and robot_description.launch.py
 
-**目的:** `simple_pure_pursuit` と planning が読む `vehicle_info` を Kachaka 差動駆動向けに作成。`robot_state_publisher` を起動する launch も用意。
+**Purpose:** Create the `vehicle_info` consumed by `simple_pure_pursuit` and planning, tuned for the differential-drive Kachaka. Also provide a launch file that starts `robot_state_publisher`.
 
 **Files:**
 - Create: `ros2/kachaka_autoware_description/config/vehicle_info.param.yaml`
 - Create: `ros2/kachaka_autoware_description/launch/robot_description.launch.py`
 
-- [ ] **Step 1: vehicle_info.param.yaml を作成（仕様書 §9.3 の値を転記）**
+- [ ] **Step 1: Create vehicle_info.param.yaml (transcribe values from spec §9.3)**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_description/config/vehicle_info.param.yaml`:
 
@@ -958,7 +958,7 @@ EOF
     max_steer_angle: 1.5708
 ```
 
-- [ ] **Step 2: robot_description.launch.py を作成**
+- [ ] **Step 2: Create robot_description.launch.py**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_description/launch/robot_description.launch.py`:
 
@@ -999,19 +999,19 @@ def generate_launch_description():
     )
 ```
 
-- [ ] **Step 3: ビルド確認**
+- [ ] **Step 3: Confirm the build**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 colcon build --packages-select kachaka_autoware_description
 ```
 
-期待結果: ビルド成功
+Expected result: build succeeds.
 
-- [ ] **Step 4: launch 単独動作確認**
+- [ ] **Step 4: Verify the launch file runs standalone**
 
-実行コマンド:
+Run:
 ```bash
 source ~/ros/jazzy/install/setup.bash
 ros2 launch kachaka_autoware_description robot_description.launch.py &
@@ -1022,11 +1022,11 @@ sleep 5
 kill %1 %2 2>/dev/null
 ```
 
-期待結果: `/robot_description` トピックに URDF が流れる。TF tree に base_footprint → base_link → docking_link → shelf_base_link → shelf_top → os1_sensor が見える。`ros2 run tf2_ros tf2_echo base_footprint os1_sensor` で transform が取れる（z は base_link → docking_link 0 + ソレノイド上面までの 0.115 + shelf height 0.50 = 0.615 m。`base_footprint → os1_lidar` は + 0.03618 = 約 0.651 m）。`use_joint_state_publisher:=true` を渡すと docking_link / wheel の TF も埋まる。
+Expected result: the URDF flows on `/robot_description`. The TF tree shows base_footprint -> base_link -> docking_link -> shelf_base_link -> shelf_top -> os1_sensor. `ros2 run tf2_ros tf2_echo base_footprint os1_sensor` returns a transform (z = 0 from base_link -> docking_link + 0.115 to the solenoid top + 0.50 shelf height = 0.615 m; `base_footprint -> os1_lidar` adds 0.03618 = ~0.651 m). Passing `use_joint_state_publisher:=true` also fills in docking_link / wheel TFs.
 
-- [ ] **Step 5: コミット**
+- [ ] **Step 5: Commit**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/src/kachaka-api
 git add ros2/kachaka_autoware_description/config/ ros2/kachaka_autoware_description/launch/
@@ -1044,21 +1044,21 @@ EOF
 
 ---
 
-### Task 9: ouster-ros launch ラッパー
+### Task 9: ouster-ros launch wrapper
 
-**目的:** OS-1 128 を `/sensing/lidar/top/pointcloud_raw_ex` というAutoware が期待するトピック名で発行する launch を作る。
+**Purpose:** Provide a launch file that publishes OS-1 128 data on the topic name Autoware expects, `/sensing/lidar/top/pointcloud_raw_ex`.
 
 **Files:**
 - Create: `ros2/kachaka_autoware_bridge/launch/sensor_ouster.launch.xml`
-- ほかは Task 10 で `kachaka_autoware_bridge` パッケージ全体を作る
+- Other files are created together with the `kachaka_autoware_bridge` package in Task 10.
 
-このタスクは Task 10 のパッケージ作成と一緒にやるため、**Task 10 にマージする**。
+This work is performed alongside the package creation in Task 10, so it is **merged into Task 10**.
 
 ---
 
-### Task 10: kachaka_autoware_bridge パッケージのスケルトン + sensor launch
+### Task 10: kachaka_autoware_bridge package skeleton + sensor launch
 
-**目的:** メタパッケージ `kachaka_autoware_bridge` を作成し、最初の launch（OS-1 wrapper）を入れる。
+**Purpose:** Create the meta package `kachaka_autoware_bridge` and add its first launch file (the OS-1 wrapper).
 
 **Files:**
 - Create: `ros2/kachaka_autoware_bridge/package.xml`
@@ -1154,35 +1154,35 @@ ament_package()
 </launch>
 ```
 
-注意: `ouster-ros` の launch ファイル名と arg 名は本家の最新 README で確認すること。`sensor.launch.xml` は ros2 ブランチの命名。
+Note: confirm the launch file name and arg names of `ouster-ros` from its upstream README. `sensor.launch.xml` is the name on the ros2 branch.
 
-- [ ] **Step 4: ビルド確認**
+- [ ] **Step 4: Confirm the build**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 colcon build --packages-select kachaka_autoware_bridge
 ```
 
-期待結果: ビルド成功
+Expected result: build succeeds.
 
-- [ ] **Step 5: launch 単独動作確認（OS-1 が接続されている場合）**
+- [ ] **Step 5: Smoke-test the launch on its own (when an OS-1 is connected)**
 
-実行コマンド:
+Run:
 ```bash
 source ~/ros/jazzy/install/setup.bash
 ros2 launch kachaka_autoware_bridge sensor_ouster.launch.xml \
-  sensor_hostname:=<実機ホスト名> &
+  sensor_hostname:=<actual hostname> &
 sleep 8
 ros2 topic hz /sensing/lidar/top/pointcloud_raw_ex
 kill %1
 ```
 
-期待結果: 約 10-20 Hz で点群が出る。
+Expected result: points publish at roughly 10-20 Hz.
 
-- [ ] **Step 6: コミット**
+- [ ] **Step 6: Commit**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/src/kachaka-api
 git add ros2/kachaka_autoware_bridge/
@@ -1199,63 +1199,63 @@ EOF
 
 ---
 
-### Task 11: TF / 点群統合の実機検証（M1 完了条件）
+### Task 11: TF / pointcloud integration check on real hardware (M1 exit criteria)
 
-**目的:** robot_state_publisher と ouster driver を起動して、RViz2 で base_footprint 基準で点群が見えることを確認。
+**Purpose:** Run robot_state_publisher and the ouster driver, then confirm in RViz2 that the pointcloud appears in the `base_footprint` frame.
 
-- [ ] **Step 1: 統合起動（手動でターミナル 3 つ）**
+- [ ] **Step 1: Integrated startup (three manual terminals)**
 
-ターミナル 1（Kachaka bridge）:
+Terminal 1 (Kachaka bridge):
 ```bash
 source ~/ros/jazzy/install/setup.bash
 ros2 launch kachaka_grpc_ros2_bridge grpc_ros2_bridge.launch.xml \
   server_uri:=192.168.1.91:26400 namespace:=kachaka
 ```
 
-ターミナル 2（OS-1）:
+Terminal 2 (OS-1):
 ```bash
 source ~/ros/jazzy/install/setup.bash
-ros2 launch kachaka_autoware_bridge sensor_ouster.launch.xml sensor_hostname:=<実機>
+ros2 launch kachaka_autoware_bridge sensor_ouster.launch.xml sensor_hostname:=<actual hostname>
 ```
 
-ターミナル 3（URDF）:
+Terminal 3 (URDF):
 ```bash
 source ~/ros/jazzy/install/setup.bash
 ros2 launch kachaka_autoware_description robot_description.launch.py
 ```
 
-- [ ] **Step 2: TF tree を確認**
+- [ ] **Step 2: Check the TF tree**
 
-実行コマンド:
+Run:
 ```bash
 ros2 run tf2_ros tf2_echo base_footprint os1_sensor
 ros2 run tf2_ros tf2_echo base_footprint shelf_top
 ros2 run tf2_ros tf2_echo shelf_top os1_sensor
 ```
 
-期待結果: `base_footprint → os1_sensor` の z は ソレノイド上面 0.115 + shelf height 0.50 + os1 mount offset 0 = 0.615 m。`shelf_top → os1_sensor` は Task 4 で実測した OS-1 取付オフセット（中央取付なら全成分 0）。
+Expected result: `base_footprint -> os1_sensor` z = solenoid top 0.115 + shelf height 0.50 + os1 mount offset 0 = 0.615 m. `shelf_top -> os1_sensor` is the OS-1 mounting offset measured in Task 4 (all zero if mounted at the centre).
 
-- [ ] **Step 3: RViz2 で点群を可視化**
+- [ ] **Step 3: Visualise the pointcloud in RViz2**
 
-実行コマンド:
+Run:
 ```bash
 rviz2 &
 ```
 
-RViz の操作:
-- Fixed Frame を `base_footprint` に
-- Add → PointCloud2 → Topic `/sensing/lidar/top/pointcloud_raw_ex`
-- Add → RobotModel → Description Topic `/robot_description`
+RViz steps:
+- Set Fixed Frame to `base_footprint`.
+- Add -> PointCloud2 -> Topic `/sensing/lidar/top/pointcloud_raw_ex`.
+- Add -> RobotModel -> Description Topic `/robot_description`.
 
-期待結果: Kachaka の URDF と OS-1 点群（部屋の点群）が同じ座標系で表示される。
+Expected result: the Kachaka URDF and the OS-1 pointcloud (room pointcloud) are rendered in the same frame.
 
-- [ ] **Step 4: コミット — 検証ノート追加（任意）**
+- [ ] **Step 4: Commit calibration tweaks (optional)**
 
-このタスクで修正があるとすれば URDF のキャリブ値の微調整:
-- シェルフ寸法 default: `kachaka_description/urdf/_shelf_3tier.urdf.xacro` の `depth` / `width` / `height` default を実測値に合わせる
-- OS-1 取付 origin: `kachaka_autoware_description/urdf/kachaka_with_shelf.urdf.xacro` の `<xacro:ouster_os1>` の `<origin>` を実測値に合わせる
+Possible changes from this task are URDF calibration tweaks:
+- Shelf dimension defaults: tune `depth` / `width` / `height` defaults in `kachaka_description/urdf/_shelf_3tier.urdf.xacro` to measured values.
+- OS-1 mount origin: tune the `<origin>` of `<xacro:ouster_os1>` in `kachaka_autoware_description/urdf/kachaka_with_shelf.urdf.xacro` to the measured offset.
 
-微調整したらコミット:
+After tuning, commit:
 
 ```bash
 cd ~/src/kachaka-api
@@ -1269,13 +1269,13 @@ point cloud.
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
 
-修正なしなら skip。
+Skip if no changes are needed.
 
 ---
 
-### Task 12: kachaka_autoware_vehicle_interface パッケージのスケルトン
+### Task 12: kachaka_autoware_vehicle_interface package skeleton
 
-**目的:** TDD でロジックを書く前に、ビルドが通る空のパッケージを作る。
+**Purpose:** Before writing logic via TDD, create an empty package that builds.
 
 **Files:**
 - Create: `ros2/kachaka_autoware_vehicle_interface/package.xml`
@@ -1322,7 +1322,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 </package>
 ```
 
-- [ ] **Step 2: CMakeLists.txt（最小、コードはまだ無い）**
+- [ ] **Step 2: CMakeLists.txt (minimal; no code yet)**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_vehicle_interface/CMakeLists.txt`:
 
@@ -1350,28 +1350,28 @@ endif()
 ament_auto_package(INSTALL_TO_SHARE launch config)
 ```
 
-- [ ] **Step 3: 空ディレクトリ + .gitkeep**
+- [ ] **Step 3: Empty directories + .gitkeep**
 
-実行コマンド:
+Run:
 ```bash
 cd /home/youtalk/src/kachaka-api/ros2/kachaka_autoware_vehicle_interface
 mkdir -p include/kachaka_autoware_vehicle_interface src test launch config
 touch include/kachaka_autoware_vehicle_interface/.gitkeep src/.gitkeep test/.gitkeep launch/.gitkeep config/.gitkeep
 ```
 
-- [ ] **Step 4: ビルド確認（空でも通る）**
+- [ ] **Step 4: Confirm the build (empty package still builds)**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 colcon build --packages-select kachaka_autoware_vehicle_interface
 ```
 
-期待結果: `Summary: 1 package finished`
+Expected result: `Summary: 1 package finished`
 
-- [ ] **Step 5: コミット**
+- [ ] **Step 5: Commit**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/src/kachaka-api
 git add ros2/kachaka_autoware_vehicle_interface/
@@ -1388,32 +1388,32 @@ EOF
 
 ---
 
-### Task 13: M1 完了確認（修正なしのコミットチェックポイント）
+### Task 13: M1 exit checkpoint (no-change commit)
 
-**目的:** M1 の完了条件「OS-1 が ROS 2 で発行、TF ツリー完成、RViz で base_footprint 基準の点群が見える」が満たされたことを確認。
+**Purpose:** Confirm the M1 exit criteria: OS-1 publishes via ROS 2, the TF tree is complete, and the pointcloud is visible in RViz against the `base_footprint` frame.
 
-- [ ] **Step 1: チェックリスト確認**
+- [ ] **Step 1: Run the checklist**
 
-確認項目（人手）:
-1. `ros2 topic hz /sensing/lidar/top/pointcloud_raw_ex` が 10-20 Hz
-2. `ros2 run tf2_ros tf2_echo base_footprint os1_sensor` で transform が取れる
-3. RViz2 で `base_footprint` 基準で点群と Kachaka URDF が一致して見える
+Manual checks:
+1. `ros2 topic hz /sensing/lidar/top/pointcloud_raw_ex` reports 10-20 Hz.
+2. `ros2 run tf2_ros tf2_echo base_footprint os1_sensor` returns a transform.
+3. In RViz2 with fixed frame `base_footprint`, the pointcloud and Kachaka URDF align.
 
-- [ ] **Step 2: コミットなし**
+- [ ] **Step 2: No commit**
 
-検証のみ。次は M2 へ。
+Verification only. Move on to M2.
 
 ---
 
-### Task 14: autoware_core_localization の起動 launch ラッパー
+### Task 14: autoware_core_localization launch wrapper
 
-**目的:** `autoware_core_localization` を Kachaka の入力（OS-1 + Kachaka wheel_odometry）に合わせて起動する launch を作る。
+**Purpose:** Launch `autoware_core_localization` with the Kachaka inputs (OS-1 + Kachaka wheel_odometry).
 
 **Files:**
 - Create: `ros2/kachaka_autoware_bridge/launch/localization.launch.xml`
 - Create: `ros2/kachaka_autoware_bridge/config/pose_initializer.param.yaml`
 
-- [ ] **Step 1: pose_initializer.param.yaml を作成（GNSS 無効化版）**
+- [ ] **Step 1: Create pose_initializer.param.yaml (GNSS-disabled variant)**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_bridge/config/pose_initializer.param.yaml`:
 
@@ -1459,7 +1459,7 @@ EOF
       ]
 ```
 
-- [ ] **Step 2: localization.launch.xml を作成**
+- [ ] **Step 2: Create localization.launch.xml**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_bridge/launch/localization.launch.xml`:
 
@@ -1486,19 +1486,19 @@ EOF
 </launch>
 ```
 
-- [ ] **Step 3: ビルド確認**
+- [ ] **Step 3: Confirm the build**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 colcon build --packages-select kachaka_autoware_bridge
 ```
 
-期待結果: ビルド成功
+Expected result: build succeeds.
 
-- [ ] **Step 4: コミット（次の Task 15-19 で動作確認）**
+- [ ] **Step 4: Commit (runtime verification follows in Tasks 15-19)**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/src/kachaka-api
 git add ros2/kachaka_autoware_bridge/launch/localization.launch.xml \
@@ -1517,16 +1517,16 @@ EOF
 
 ---
 
-### Task 15: 静的 vehicle_velocity_converter 統合のための仮 VelocityReport publisher
+### Task 15: Temporary VelocityReport publisher for static vehicle_velocity_converter integration
 
-**目的:** Vehicle Interface ノード（Task 20-）で `/vehicle/status/velocity_status` を発行するが、それ以前に Localization 単独で確認するために、Kachaka の `wheel_odometry` を直接 `VelocityReport` に変換する **暫定relay** を一時的に作る。Task 20 以降で Vehicle Interface ノードに統合する。
+**Purpose:** `/vehicle/status/velocity_status` is published by the Vehicle Interface node (Task 20+), but to verify Localization standalone first, a temporary relay converting Kachaka's `wheel_odometry` directly to `VelocityReport` is needed. It is folded into the Vehicle Interface node from Task 20 onwards.
 
-実装方針: 暫定 `python` スクリプトで `wheel_odometry` を購読、`VelocityReport` を publish する。本実装は Task 25-27 で C++ で書く。
+Approach: a temporary Python-script-equivalent that subscribes to `wheel_odometry` and publishes `VelocityReport`. The real implementation lands as C++ in Tasks 25-27.
 
 **Files:**
-- Create: `ros2/kachaka_autoware_bridge/launch/temp_velocity_relay.launch.xml`（M2 中の一時的なもの、M3 完了時に削除）
+- Create: `ros2/kachaka_autoware_bridge/launch/temp_velocity_relay.launch.xml` (temporary during M2, removed at the end of M3)
 
-- [ ] **Step 1: launch を `topic_tools` の transform で記述（python ノード作成は避ける）**
+- [ ] **Step 1: Implement the launch using `topic_tools` `transform` (avoid creating a python node)**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_bridge/launch/temp_velocity_relay.launch.xml`:
 
@@ -1548,21 +1548,21 @@ EOF
 </launch>
 ```
 
-注意: `topic_tools transform` は ROS 2 Jazzy では launch から扱える。`expression` は Python 評価式。
+Note: `topic_tools transform` is launchable from launch files on ROS 2 Jazzy. `expression` is a Python evaluation expression.
 
-- [ ] **Step 2: ビルド確認**
+- [ ] **Step 2: Confirm the build**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 colcon build --packages-select kachaka_autoware_bridge
 ```
 
-期待結果: ビルド成功
+Expected result: build succeeds.
 
-- [ ] **Step 3: コミット**
+- [ ] **Step 3: Commit**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/src/kachaka-api
 git add ros2/kachaka_autoware_bridge/launch/temp_velocity_relay.launch.xml
@@ -1580,26 +1580,26 @@ EOF
 
 ---
 
-### Task 16: Localization 実機起動と NDT monte carlo 確認
+### Task 16: Localization on real hardware + NDT Monte Carlo check
 
-**目的:** Kachaka 静止状態で NDT が初期姿勢を確定し、`/localization/kinematic_state` が出ることを確認。
+**Purpose:** With Kachaka stationary, confirm NDT settles on an initial pose and `/localization/kinematic_state` is published.
 
-- [ ] **Step 1: 4 ターミナルで統合起動**
+- [ ] **Step 1: Integrated launch across four terminals**
 
-ターミナル 1: Kachaka bridge
+Terminal 1: Kachaka bridge
 ```bash
 source ~/ros/jazzy/install/setup.bash
 ros2 launch kachaka_grpc_ros2_bridge grpc_ros2_bridge.launch.xml \
   server_uri:=192.168.1.91:26400 namespace:=kachaka
 ```
 
-ターミナル 2: OS-1
+Terminal 2: OS-1
 ```bash
 source ~/ros/jazzy/install/setup.bash
-ros2 launch kachaka_autoware_bridge sensor_ouster.launch.xml sensor_hostname:=<実機>
+ros2 launch kachaka_autoware_bridge sensor_ouster.launch.xml sensor_hostname:=<actual hostname>
 ```
 
-ターミナル 3: URDF + 暫定 velocity relay + localization
+Terminal 3: URDF + temporary velocity relay + localization
 ```bash
 source ~/ros/jazzy/install/setup.bash
 ros2 launch kachaka_autoware_description robot_description.launch.py &
@@ -1609,20 +1609,20 @@ ros2 launch kachaka_autoware_bridge localization.launch.xml \
   map_path:=$HOME/maps/kachaka_home
 ```
 
-ターミナル 4: RViz（開発PC側でも可）
+Terminal 4: RViz (can run on the development PC)
 ```bash
 rviz2
 ```
 
-- [ ] **Step 2: 初期姿勢を `2D Pose Estimate` で粗く与える（M0 lanelet2 で覚えた起点付近）**
+- [ ] **Step 2: Provide a rough initial pose via `2D Pose Estimate` (near the M0 lanelet2 origin)**
 
-RViz で `2D Pose Estimate` ボタンをクリックし、自宅の地図上で「Kachakaが今いる位置」を矢印で指定。
+In RViz, click `2D Pose Estimate` and drop an arrow on the map at "where Kachaka actually is".
 
-期待結果: NDT が monte carlo で収束し、`/localization/kinematic_state` が約 50 Hz で出る。
+Expected result: NDT converges via Monte Carlo and `/localization/kinematic_state` publishes at about 50 Hz.
 
-- [ ] **Step 3: 出力を確認**
+- [ ] **Step 3: Inspect the output**
 
-実行コマンド:
+Run:
 ```bash
 ros2 topic hz /localization/kinematic_state
 ros2 topic echo --once /localization/kinematic_state
@@ -1630,105 +1630,105 @@ ros2 run tf2_ros tf2_echo map odom
 ros2 run tf2_ros tf2_echo map base_footprint
 ```
 
-期待結果:
-- 約 50 Hz
-- `pose.position` が現実的な値
-- `map → odom → base_footprint` の TF が一貫している
+Expected result:
+- About 50 Hz.
+- `pose.position` has plausible values.
+- `map -> odom -> base_footprint` TF is consistent.
 
-- [ ] **Step 4: Kachaka を 1 m 程度手押しして、NDT が追従することを確認**
+- [ ] **Step 4: Push Kachaka by hand for about 1 m and confirm NDT tracks**
 
-人手作業: Kachaka を手で押して 1 m 程度動かす。
+Manual task: push Kachaka by hand for about 1 m.
 
-確認:
-- RViz で点群と URDFが地図上で動く
-- `/localization/kinematic_state` の `pose.position` が連続的に変化する
+Checks:
+- The pointcloud and URDF in RViz move on the map.
+- `/localization/kinematic_state` `pose.position` changes continuously.
 
-期待結果: 追従して動く。divergence 無し。
+Expected result: tracking holds, no divergence.
 
-- [ ] **Step 5: wheel_odometry の妥当性確認**
+- [ ] **Step 5: Sanity-check wheel_odometry**
 
-実行コマンド:
+Run:
 ```bash
 ros2 topic echo --once /kachaka/wheel_odometry/wheel_odometry
 ros2 topic echo --once /vehicle/status/velocity_status
 ```
 
-確認: Kachaka を 0.1 m/s で手押しすると `longitudinal_velocity` が 0.1 付近を示すか。
+Check: when pushing Kachaka at about 0.1 m/s, does `longitudinal_velocity` read close to 0.1?
 
-期待結果: 妥当な値が出る（仕様書 §6.1 の要検証ポイント）。NG なら Task 17 で IMU フォールバックを実装。
+Expected result: plausible values (the verification point flagged in spec §6.1). If not, implement the IMU fallback in Task 17.
 
-- [ ] **Step 6: 検証メモを追加（成功時）**
+- [ ] **Step 6: Append verification notes (on success)**
 
-検証結果を `docs/superpowers/specs/2026-05-02-kachaka-autoware-core-design.md` の §16 に追記しても良い（任意）。
+Optionally record the verification result in `docs/superpowers/specs/2026-05-02-kachaka-autoware-core-design.md` §16.
 
-修正なしならコミット skip。
-
----
-
-### Task 17: wheel_odometry NG 時の IMU フォールバック（条件付き）
-
-**目的:** Task 16 Step 5 で `wheel_odometry` が信頼できないと判明した場合のみ実装。仕様書 §6.1 の要検証項目への対応。
-
-**前提:** Task 16 で wheel_odometry が問題なく動いた場合、このタスクは **skip**。
-
-**Files（実施時のみ作成）:**
-- Modify: `ros2/kachaka_autoware_bridge/launch/temp_velocity_relay.launch.xml`（IMU 角速度ベースに置換）
-
-実施時の方針: IMU `/kachaka/imu/imu` の `angular_velocity.z` を `heading_rate` に、wheel_odometry の `linear.x` 成分のみを `longitudinal_velocity` に使う合成 relay に変える。実装は Task 15 と同じ `topic_tools transform` を組み替えるだけ。
-
-- [ ] **Step 1: 必要かどうか判断（人手）**
-
-Task 16 Step 5 で `wheel_odometry` が NG なら以下を実施。
-
-- [ ] **Step 2: IMU フォールバック launch（実施時のみ）**
-
-省略（Task 16 で OK だった場合は不要）。実施するなら topic_tools の `transform` で 2 トピック合成は厳しいので、`kachaka_autoware_vehicle_interface` 内で対応する形にする（Task 25 でフラグ追加）。
-
-- [ ] **Step 3: skip するか実施するかコミット**
-
-実施: 暫定launch更新 + コミット。skip: なにもしない。
+Skip the commit if there is nothing to write.
 
 ---
 
-### Task 18: M2 Localization の検証完了
+### Task 17: IMU fallback when wheel_odometry is unreliable (conditional)
 
-**目的:** M2 完了条件「NDT + EKF が `/localization/kinematic_state` を出す」を確認。
+**Purpose:** Implement only if Task 16 Step 5 shows that `wheel_odometry` is unreliable. Addresses the verification point in spec §6.1.
 
-- [ ] **Step 1: チェックリスト**
+**Precondition:** Skip this task entirely if wheel_odometry passed in Task 16.
 
-1. `/localization/kinematic_state` が 50 Hz で出る
-2. Kachaka を 1 m 手押しして追従する
-3. `wheel_odometry` が `vehicle_velocity_converter` 経由で EKF に流れている
-4. `map → odom` TF が一定（diverge していない）
+**Files (only when implemented):**
+- Modify: `ros2/kachaka_autoware_bridge/launch/temp_velocity_relay.launch.xml` (switch to IMU angular velocity)
 
-- [ ] **Step 2: コミットなし**
+Implementation approach: use IMU `/kachaka/imu/imu` `angular_velocity.z` as `heading_rate` and only use the `linear.x` component of wheel_odometry as `longitudinal_velocity`. Mechanically the same `topic_tools transform` as Task 15, just with a different expression.
 
-検証のみ。
+- [ ] **Step 1: Decide whether this is needed (manual)**
 
----
+Run the steps below if Task 16 Step 5 marked `wheel_odometry` as bad.
 
-### Task 19: M2→M3 の hand-off（暫定 relay の維持）
+- [ ] **Step 2: IMU fallback launch (only when implementing)**
 
-**目的:** M3 で本実装に置き換えるまで、暫定 `temp_velocity_relay.launch.xml` は残す。Task 27 で削除する。
+Skipped if Task 16 was OK. If implemented, combining two topics with `topic_tools` `transform` is awkward, so handle it inside `kachaka_autoware_vehicle_interface` instead (add a flag in Task 25).
 
-- [ ] **Step 1: メモ**
+- [ ] **Step 3: Commit (whether you skipped or implemented)**
 
-Task 27 で `temp_velocity_relay.launch.xml` を削除予定。M3 完了時にチェック。
-
-- [ ] **Step 2: コミットなし**
+Implemented: update the temp launch + commit. Skipped: do nothing.
 
 ---
 
-### Task 20: control_to_twist_converter のテストファースト（その1: 直進）
+### Task 18: M2 Localization verification complete
 
-**目的:** Control → Twist 変換ロジックの最初のテストを書く。`v=0.2 m/s, δ=0` のとき `linear.x=0.2, angular.z=0` になることを検証。
+**Purpose:** Confirm the M2 exit criteria: NDT + EKF publish `/localization/kinematic_state`.
+
+- [ ] **Step 1: Checklist**
+
+1. `/localization/kinematic_state` publishes at 50 Hz.
+2. Pushing Kachaka by 1 m tracks correctly.
+3. `wheel_odometry` flows into the EKF through `vehicle_velocity_converter`.
+4. `map -> odom` TF is steady (no divergence).
+
+- [ ] **Step 2: No commit**
+
+Verification only.
+
+---
+
+### Task 19: M2 -> M3 hand-off (keep the temporary relay)
+
+**Purpose:** Keep `temp_velocity_relay.launch.xml` until M3 ships the real implementation. It is removed in Task 27.
+
+- [ ] **Step 1: Note**
+
+`temp_velocity_relay.launch.xml` is removed in Task 27. Re-check at M3 completion.
+
+- [ ] **Step 2: No commit**
+
+---
+
+### Task 20: control_to_twist_converter test-first (part 1: straight line)
+
+**Purpose:** Write the tests first (TDD): the first test for the Control -> Twist conversion verifies that `v=0.2 m/s, delta=0` yields `linear.x=0.2, angular.z=0`.
 
 **Files:**
-- Create: `ros2/kachaka_autoware_vehicle_interface/include/kachaka_autoware_vehicle_interface/control_to_twist_converter.hpp` (失敗用に空)
+- Create: `ros2/kachaka_autoware_vehicle_interface/include/kachaka_autoware_vehicle_interface/control_to_twist_converter.hpp` (empty so the test fails to compile)
 - Create: `ros2/kachaka_autoware_vehicle_interface/test/test_control_to_twist_converter.cpp`
 - Modify: `ros2/kachaka_autoware_vehicle_interface/CMakeLists.txt`
 
-- [ ] **Step 1: 空のヘッダを置く（テストがコンパイルエラーで落ちる準備）**
+- [ ] **Step 1: Place an empty header (so the test fails with a compile error)**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_vehicle_interface/include/kachaka_autoware_vehicle_interface/control_to_twist_converter.hpp`:
 
@@ -1745,7 +1745,7 @@ namespace kachaka_autoware_vehicle_interface {
 #endif  // KACHAKA_AUTOWARE_VEHICLE_INTERFACE_CONTROL_TO_TWIST_CONVERTER_HPP_
 ```
 
-- [ ] **Step 2: 失敗するテストを書く**
+- [ ] **Step 2: Write the failing test**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_vehicle_interface/test/test_control_to_twist_converter.cpp`:
 
@@ -1790,9 +1790,9 @@ TEST(ControlToTwistConverter, StraightLineHasZeroAngular)
 }
 ```
 
-- [ ] **Step 3: CMakeLists.txt にテスト登録**
+- [ ] **Step 3: Register the test in CMakeLists.txt**
 
-`/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_vehicle_interface/CMakeLists.txt` を以下に置き換え:
+Replace `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_vehicle_interface/CMakeLists.txt` with:
 
 ```cmake
 cmake_minimum_required(VERSION 3.14)
@@ -1828,32 +1828,32 @@ endif()
 ament_auto_package(INSTALL_TO_SHARE launch config)
 ```
 
-- [ ] **Step 4: テストをビルドして失敗することを確認**
+- [ ] **Step 4: Build the test and confirm it fails**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 colcon build --packages-select kachaka_autoware_vehicle_interface
 ```
 
-期待結果: コンパイルエラー（`ControlToTwistConverter` 未定義）。これが「失敗するテスト」の確認。
+Expected result: compile error (`ControlToTwistConverter` undefined). This confirms the failing test.
 
-- [ ] **Step 5: コミットなし（失敗するテストはコミットしない）**
+- [ ] **Step 5: No commit (do not commit a failing test)**
 
-次の Task 21 で実装してパスさせてから一緒にコミット。
+Commit after Task 21 implements the converter and the test passes.
 
 ---
 
-### Task 21: control_to_twist_converter の最小実装で Task 20 のテストを通す
+### Task 21: Minimal control_to_twist_converter implementation that passes Task 20
 
-**目的:** Task 20 のテストを通す最小実装を書く。
+**Purpose:** Write the minimal implementation that makes the Task 20 test pass.
 
 **Files:**
 - Modify: `ros2/kachaka_autoware_vehicle_interface/include/kachaka_autoware_vehicle_interface/control_to_twist_converter.hpp`
 - Create: `ros2/kachaka_autoware_vehicle_interface/src/control_to_twist_converter.cpp`
 - Modify: `ros2/kachaka_autoware_vehicle_interface/CMakeLists.txt`
 
-- [ ] **Step 1: ヘッダにクラス定義**
+- [ ] **Step 1: Class definition in the header**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_vehicle_interface/include/kachaka_autoware_vehicle_interface/control_to_twist_converter.hpp`:
 
@@ -1889,7 +1889,7 @@ private:
 #endif  // KACHAKA_AUTOWARE_VEHICLE_INTERFACE_CONTROL_TO_TWIST_CONVERTER_HPP_
 ```
 
-- [ ] **Step 2: 実装**
+- [ ] **Step 2: Implementation**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_vehicle_interface/src/control_to_twist_converter.cpp`:
 
@@ -1920,9 +1920,9 @@ geometry_msgs::msg::Twist ControlToTwistConverter::convert(
 }  // namespace kachaka_autoware_vehicle_interface
 ```
 
-- [ ] **Step 3: CMakeLists.txt にライブラリ定義を足す**
+- [ ] **Step 3: Add library definition to CMakeLists.txt**
 
-`CMakeLists.txt` を更新:
+Update `CMakeLists.txt`:
 
 ```cmake
 cmake_minimum_required(VERSION 3.14)
@@ -1963,9 +1963,9 @@ endif()
 ament_auto_package(INSTALL_TO_SHARE launch config)
 ```
 
-- [ ] **Step 4: ビルド & テスト実行**
+- [ ] **Step 4: Build and run tests**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 colcon build --packages-select kachaka_autoware_vehicle_interface
@@ -1973,11 +1973,11 @@ colcon test --packages-select kachaka_autoware_vehicle_interface --event-handler
 colcon test-result --verbose --test-result-base build/kachaka_autoware_vehicle_interface
 ```
 
-期待結果: `test_control_to_twist_converter` のテスト 1 件 PASS
+Expected result: 1 test in `test_control_to_twist_converter` passes.
 
-- [ ] **Step 5: コミット**
+- [ ] **Step 5: Commit**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/src/kachaka-api
 git add ros2/kachaka_autoware_vehicle_interface/
@@ -1994,16 +1994,16 @@ EOF
 
 ---
 
-### Task 22: control_to_twist_converter の追加テスト（カーブ・上限飽和・wheel_base=0）
+### Task 22: Additional control_to_twist_converter tests (curve / clamping / wheel_base=0)
 
-**目的:** 境界値とエッジケースをカバー。
+**Purpose:** Cover boundary values and edge cases.
 
 **Files:**
 - Modify: `ros2/kachaka_autoware_vehicle_interface/test/test_control_to_twist_converter.cpp`
 
-- [ ] **Step 1: 失敗するテストを追加**
+- [ ] **Step 1: Add failing tests**
 
-`test_control_to_twist_converter.cpp` に以下を append:
+Append to `test_control_to_twist_converter.cpp`:
 
 ```cpp
 TEST(ControlToTwistConverter, RightTurnHasNegativeAngular)
@@ -2051,26 +2051,26 @@ TEST(ControlToTwistConverter, ZeroWheelBaseGivesZeroAngular)
 }
 ```
 
-ファイル先頭の include に `<cmath>` も追加:
+Also add `<cmath>` to the includes at the top of the file:
 
 ```cpp
 #include <cmath>
 ```
 
-- [ ] **Step 2: テスト実行（追加分も全て PASS することを確認）**
+- [ ] **Step 2: Run the tests (all old + new tests must pass)**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 colcon build --packages-select kachaka_autoware_vehicle_interface
 colcon test --packages-select kachaka_autoware_vehicle_interface --event-handlers console_direct+
 ```
 
-期待結果: 5 テスト全部 PASS
+Expected result: all 5 tests pass.
 
-- [ ] **Step 3: コミット**
+- [ ] **Step 3: Commit**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/src/kachaka-api
 git add ros2/kachaka_autoware_vehicle_interface/test/test_control_to_twist_converter.cpp
@@ -2086,16 +2086,16 @@ EOF
 
 ---
 
-### Task 23: operation_mode_state_machine のテストファースト
+### Task 23: operation_mode_state_machine test-first
 
-**目的:** STOP / AUTONOMOUS の状態遷移ロジックを TDD で書く。
+**Purpose:** Write the tests first (TDD) for the STOP / AUTONOMOUS state transition logic.
 
 **Files:**
 - Create: `ros2/kachaka_autoware_vehicle_interface/include/kachaka_autoware_vehicle_interface/operation_mode_state_machine.hpp`
 - Create: `ros2/kachaka_autoware_vehicle_interface/test/test_operation_mode_state_machine.cpp`
 - Modify: `ros2/kachaka_autoware_vehicle_interface/CMakeLists.txt`
 
-- [ ] **Step 1: 空のヘッダ**
+- [ ] **Step 1: Empty header**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_vehicle_interface/include/kachaka_autoware_vehicle_interface/operation_mode_state_machine.hpp`:
 
@@ -2112,7 +2112,7 @@ namespace kachaka_autoware_vehicle_interface {
 #endif  // KACHAKA_AUTOWARE_VEHICLE_INTERFACE_OPERATION_MODE_STATE_MACHINE_HPP_
 ```
 
-- [ ] **Step 2: 失敗するテスト（4 ケース）**
+- [ ] **Step 2: Failing tests (4 cases)**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_vehicle_interface/test/test_operation_mode_state_machine.cpp`:
 
@@ -2156,9 +2156,9 @@ TEST(OperationModeStateMachine, RequestSameStateIsIdempotent)
 }
 ```
 
-- [ ] **Step 3: CMakeLists.txt に test を追加**
+- [ ] **Step 3: Add the test in CMakeLists.txt**
 
-CMakeLists.txt の `if(BUILD_TESTING)` 内に append:
+Append inside `if(BUILD_TESTING)` in CMakeLists.txt:
 
 ```cmake
   ament_add_gtest(test_operation_mode_state_machine
@@ -2167,28 +2167,28 @@ CMakeLists.txt の `if(BUILD_TESTING)` 内に append:
   target_link_libraries(test_operation_mode_state_machine ${PROJECT_NAME})
 ```
 
-- [ ] **Step 4: ビルドが失敗することを確認**
+- [ ] **Step 4: Confirm the build fails**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 colcon build --packages-select kachaka_autoware_vehicle_interface
 ```
 
-期待結果: コンパイルエラー（`OperationModeStateMachine` 未定義）
+Expected result: compile error (`OperationModeStateMachine` undefined).
 
-- [ ] **Step 5: コミットなし（次タスクで実装）**
+- [ ] **Step 5: No commit (implementation lands in the next task)**
 
 ---
 
-### Task 24: operation_mode_state_machine の実装
+### Task 24: operation_mode_state_machine implementation
 
 **Files:**
 - Modify: `ros2/kachaka_autoware_vehicle_interface/include/kachaka_autoware_vehicle_interface/operation_mode_state_machine.hpp`
 - Create: `ros2/kachaka_autoware_vehicle_interface/src/operation_mode_state_machine.cpp`
 - Modify: `ros2/kachaka_autoware_vehicle_interface/CMakeLists.txt`
 
-- [ ] **Step 1: ヘッダ実装**
+- [ ] **Step 1: Header**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_vehicle_interface/include/kachaka_autoware_vehicle_interface/operation_mode_state_machine.hpp`:
 
@@ -2226,7 +2226,7 @@ private:
 #endif  // KACHAKA_AUTOWARE_VEHICLE_INTERFACE_OPERATION_MODE_STATE_MACHINE_HPP_
 ```
 
-- [ ] **Step 2: 実装**
+- [ ] **Step 2: Implementation**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_vehicle_interface/src/operation_mode_state_machine.cpp`:
 
@@ -2261,9 +2261,9 @@ bool OperationModeStateMachine::request_stop()
 }  // namespace kachaka_autoware_vehicle_interface
 ```
 
-- [ ] **Step 3: CMakeLists.txt のライブラリ source に追加**
+- [ ] **Step 3: Append to the library sources in CMakeLists.txt**
 
-`ament_auto_add_library` のソース行に `src/operation_mode_state_machine.cpp` を append:
+Append `src/operation_mode_state_machine.cpp` to the source list of `ament_auto_add_library`:
 
 ```cmake
 ament_auto_add_library(${PROJECT_NAME} SHARED
@@ -2272,20 +2272,20 @@ ament_auto_add_library(${PROJECT_NAME} SHARED
 )
 ```
 
-- [ ] **Step 4: テスト実行**
+- [ ] **Step 4: Run the tests**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 colcon build --packages-select kachaka_autoware_vehicle_interface
 colcon test --packages-select kachaka_autoware_vehicle_interface --event-handlers console_direct+
 ```
 
-期待結果: 9 テスト全部 PASS（5 + 4）
+Expected result: 9 tests pass (5 + 4).
 
-- [ ] **Step 5: コミット**
+- [ ] **Step 5: Commit**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/src/kachaka-api
 git add ros2/kachaka_autoware_vehicle_interface/
@@ -2302,9 +2302,9 @@ EOF
 
 ---
 
-### Task 25: velocity_status_publisher のテストファースト & 実装
+### Task 25: velocity_status_publisher test-first and implementation
 
-**目的:** `nav_msgs/Odometry` → `autoware_vehicle_msgs/VelocityReport` の変換を実装。
+**Purpose:** Implement the `nav_msgs/Odometry` -> `autoware_vehicle_msgs/VelocityReport` conversion.
 
 **Files:**
 - Create: `ros2/kachaka_autoware_vehicle_interface/include/kachaka_autoware_vehicle_interface/velocity_status_publisher.hpp`
@@ -2312,7 +2312,7 @@ EOF
 - Create: `ros2/kachaka_autoware_vehicle_interface/test/test_velocity_status_publisher.cpp`
 - Modify: `ros2/kachaka_autoware_vehicle_interface/CMakeLists.txt`
 
-- [ ] **Step 1: 失敗するテスト**
+- [ ] **Step 1: Failing test**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_vehicle_interface/test/test_velocity_status_publisher.cpp`:
 
@@ -2342,7 +2342,7 @@ TEST(VelocityStatusPublisher, ConvertsLinearAndAngularComponents)
 }
 ```
 
-- [ ] **Step 2: 失敗するヘッダ（最小宣言）**
+- [ ] **Step 2: Header (minimal declaration; will fail if test runs first)**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_vehicle_interface/include/kachaka_autoware_vehicle_interface/velocity_status_publisher.hpp`:
 
@@ -2363,7 +2363,7 @@ autoware_vehicle_msgs::msg::VelocityReport convert_odometry_to_velocity_report(
 #endif  // KACHAKA_AUTOWARE_VEHICLE_INTERFACE_VELOCITY_STATUS_PUBLISHER_HPP_
 ```
 
-- [ ] **Step 3: 実装**
+- [ ] **Step 3: Implementation**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_vehicle_interface/src/velocity_status_publisher.cpp`:
 
@@ -2386,14 +2386,14 @@ autoware_vehicle_msgs::msg::VelocityReport convert_odometry_to_velocity_report(
 }  // namespace kachaka_autoware_vehicle_interface
 ```
 
-- [ ] **Step 4: CMakeLists.txt に追加**
+- [ ] **Step 4: Update CMakeLists.txt**
 
-ライブラリ source に append:
+Append to the library sources:
 ```cmake
   src/velocity_status_publisher.cpp
 ```
 
-`if(BUILD_TESTING)` 内にテスト追加:
+Append the test inside `if(BUILD_TESTING)`:
 ```cmake
   ament_add_gtest(test_velocity_status_publisher
     test/test_velocity_status_publisher.cpp
@@ -2401,20 +2401,20 @@ autoware_vehicle_msgs::msg::VelocityReport convert_odometry_to_velocity_report(
   target_link_libraries(test_velocity_status_publisher ${PROJECT_NAME})
 ```
 
-- [ ] **Step 5: ビルド & テスト**
+- [ ] **Step 5: Build and test**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 colcon build --packages-select kachaka_autoware_vehicle_interface
 colcon test --packages-select kachaka_autoware_vehicle_interface --event-handlers console_direct+
 ```
 
-期待結果: 10 テスト PASS
+Expected result: 10 tests pass.
 
-- [ ] **Step 6: コミット**
+- [ ] **Step 6: Commit**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/src/kachaka-api
 git add ros2/kachaka_autoware_vehicle_interface/
@@ -2431,9 +2431,9 @@ EOF
 
 ---
 
-### Task 26: vehicle_interface_node の作成（最小起動）
+### Task 26: Create vehicle_interface_node (minimal startup)
 
-**目的:** rclcpp::Node サブクラスを作り、最低限の起動だけできる状態にする。subscriber/publisher 配線は次タスク以降。
+**Purpose:** Create the `rclcpp::Node` subclass with just enough wiring to start. Subscribers/publishers are wired in later tasks.
 
 **Files:**
 - Create: `ros2/kachaka_autoware_vehicle_interface/include/kachaka_autoware_vehicle_interface/vehicle_interface_node.hpp`
@@ -2443,7 +2443,7 @@ EOF
 - Create: `ros2/kachaka_autoware_vehicle_interface/config/vehicle_interface.param.yaml`
 - Create: `ros2/kachaka_autoware_vehicle_interface/launch/vehicle_interface.launch.xml`
 
-- [ ] **Step 1: ヘッダ**
+- [ ] **Step 1: Header**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_vehicle_interface/include/kachaka_autoware_vehicle_interface/vehicle_interface_node.hpp`:
 
@@ -2475,7 +2475,7 @@ private:
 #endif  // KACHAKA_AUTOWARE_VEHICLE_INTERFACE_VEHICLE_INTERFACE_NODE_HPP_
 ```
 
-- [ ] **Step 2: 実装（最小、パラメータ読み込みのみ）**
+- [ ] **Step 2: Implementation (minimal: parameter loading only)**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_vehicle_interface/src/vehicle_interface_node.cpp`:
 
@@ -2523,7 +2523,7 @@ int main(int argc, char ** argv)
 }
 ```
 
-- [ ] **Step 4: CMakeLists.txt にライブラリ source とexecutableを追加**
+- [ ] **Step 4: Add library sources and executable to CMakeLists.txt**
 
 ```cmake
 ament_auto_add_library(${PROJECT_NAME} SHARED
@@ -2537,7 +2537,7 @@ ament_auto_add_executable(${PROJECT_NAME}_node src/main.cpp)
 target_link_libraries(${PROJECT_NAME}_node ${PROJECT_NAME})
 ```
 
-- [ ] **Step 5: 設定 YAML（仕様書 §9.2）**
+- [ ] **Step 5: Parameter YAML (spec §9.2)**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_vehicle_interface/config/vehicle_interface.param.yaml`:
 
@@ -2553,7 +2553,7 @@ target_link_libraries(${PROJECT_NAME}_node ${PROJECT_NAME})
     auto_enable_manual_control: true
 ```
 
-- [ ] **Step 6: launch ファイル**
+- [ ] **Step 6: Launch file**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_vehicle_interface/launch/vehicle_interface.launch.xml`:
 
@@ -2571,9 +2571,9 @@ target_link_libraries(${PROJECT_NAME}_node ${PROJECT_NAME})
 </launch>
 ```
 
-- [ ] **Step 7: ビルド & 動作確認**
+- [ ] **Step 7: Build and smoke-test**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 colcon build --packages-select kachaka_autoware_vehicle_interface
@@ -2584,11 +2584,11 @@ ros2 node info /kachaka_autoware_vehicle_interface
 kill %1
 ```
 
-期待結果: ノードが起動し、`VehicleInterfaceNode started: wheel_base=0.300, vmax=0.300, wmax=1.570` のログが出る。
+Expected result: the node starts and logs `VehicleInterfaceNode started: wheel_base=0.300, vmax=0.300, wmax=1.570`.
 
-- [ ] **Step 8: コミット**
+- [ ] **Step 8: Commit**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/src/kachaka-api
 git add ros2/kachaka_autoware_vehicle_interface/
@@ -2605,17 +2605,17 @@ EOF
 
 ---
 
-### Task 27: Control サブスクライバ + Twist パブリッシャ + operation_mode ゲート
+### Task 27: Control subscriber + Twist publisher + operation_mode gate
 
-**目的:** `/control/command/control_cmd` を購読、`/system/operation_mode/state` を見て AUTONOMOUS のときだけ `/kachaka/manual_control/cmd_vel` に流す。
+**Purpose:** Subscribe to `/control/command/control_cmd`, watch `/system/operation_mode/state`, and republish to `/kachaka/manual_control/cmd_vel` only while AUTONOMOUS.
 
 **Files:**
 - Modify: `ros2/kachaka_autoware_vehicle_interface/include/kachaka_autoware_vehicle_interface/vehicle_interface_node.hpp`
 - Modify: `ros2/kachaka_autoware_vehicle_interface/src/vehicle_interface_node.cpp`
 
-- [ ] **Step 1: ヘッダにメンバ追加**
+- [ ] **Step 1: Add members to the header**
 
-更新後の `vehicle_interface_node.hpp`:
+Updated `vehicle_interface_node.hpp`:
 
 ```cpp
 #ifndef KACHAKA_AUTOWARE_VEHICLE_INTERFACE_VEHICLE_INTERFACE_NODE_HPP_
@@ -2659,7 +2659,7 @@ private:
 #endif  // KACHAKA_AUTOWARE_VEHICLE_INTERFACE_VEHICLE_INTERFACE_NODE_HPP_
 ```
 
-- [ ] **Step 2: 実装更新**
+- [ ] **Step 2: Update the implementation**
 
 `vehicle_interface_node.cpp`:
 
@@ -2719,36 +2719,36 @@ void VehicleInterfaceNode::on_op_mode_state(
 }  // namespace kachaka_autoware_vehicle_interface
 ```
 
-注意: 仕様書 §9.1.E では「Vehicle Interface 内に簡易状態機械を実装し、`/system/operation_mode/state` を **発行** する」となっている。本実装では一旦 **購読** のみにし、Task 28 で発行責務を追加する形で段階的に拡張する（autoware_default_adapi の operation_mode 系が core 版にないので、Vehicle Interface が両方やる必要がある）。
+Note: spec §9.1.E says "the Vehicle Interface implements a simple state machine and **publishes** `/system/operation_mode/state`". This task only **subscribes** for now; the publishing duty is added incrementally in Task 28 (since the core variant of autoware_default_adapi lacks the operation_mode interfaces, the Vehicle Interface must handle both sides).
 
-- [ ] **Step 3: ビルド & 既存テスト全PASSの確認**
+- [ ] **Step 3: Build and confirm existing tests still pass**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 colcon build --packages-select kachaka_autoware_vehicle_interface
 colcon test --packages-select kachaka_autoware_vehicle_interface
 ```
 
-期待結果: 既存 10 テスト全 PASS。新規テストはまだ無い。
+Expected result: existing 10 tests pass. No new tests yet.
 
-- [ ] **Step 4: 暫定 temp_velocity_relay の削除**
+- [ ] **Step 4: Remove the temporary temp_velocity_relay**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/src/kachaka-api
 rm ros2/kachaka_autoware_bridge/launch/temp_velocity_relay.launch.xml
 ```
 
-理由: M3 で本実装に置き換わるため M2 のhand-offで削除（仕様書 Task 19 のメモ参照）。
+Reason: it is superseded by the real implementation in M3 (see the Task 19 note about the M2 hand-off).
 
-ただし、このタスク時点では Vehicle Interface は VelocityReport の発行は未実装なので、削除は **Task 28 の後**にする。Step 4 の削除は **Task 28 完了時に移動**。
+However, the Vehicle Interface does not yet publish VelocityReport at this point, so deletion is deferred until **after Task 28**. Skip the deletion here and perform it in Task 28 instead.
 
-→ Step 4 は **skip して Task 28 で実施**。
+-> Step 4 is **skipped here and performed in Task 28**.
 
-- [ ] **Step 4 (revised): コミット**
+- [ ] **Step 4 (revised): Commit**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/src/kachaka-api
 git add ros2/kachaka_autoware_vehicle_interface/
@@ -2765,20 +2765,20 @@ EOF
 
 ---
 
-### Task 28: VelocityReport 発行 + operation_mode 発行 + change_to サービス
+### Task 28: VelocityReport publishing + operation_mode publishing + change_to services
 
-**目的:** Vehicle Interface に以下を追加:
-- `wheel_odometry` 購読 → `/vehicle/status/velocity_status` 発行（50 Hz）
-- `/system/operation_mode/state` 自身が発行（10 Hz）
-- `/system/operation_mode/change_to_autonomous`, `change_to_stop` サービス hosting
-- `auto_enable_manual_control` で起動時に `set_manual_control_enabled(true)` を呼ぶ
+**Purpose:** Add the following to the Vehicle Interface:
+- Subscribe to `wheel_odometry` and publish `/vehicle/status/velocity_status` at 50 Hz.
+- Publish `/system/operation_mode/state` itself at 10 Hz.
+- Host `/system/operation_mode/change_to_autonomous` and `change_to_stop` services.
+- When `auto_enable_manual_control` is true, call `set_manual_control_enabled(true)` at startup.
 
 **Files:**
 - Modify: `ros2/kachaka_autoware_vehicle_interface/include/kachaka_autoware_vehicle_interface/vehicle_interface_node.hpp`
 - Modify: `ros2/kachaka_autoware_vehicle_interface/src/vehicle_interface_node.cpp`
-- Modify: `ros2/kachaka_autoware_vehicle_interface/package.xml`（`std_srvs` は既にあるので確認）
+- Modify: `ros2/kachaka_autoware_vehicle_interface/package.xml` (verify that `std_srvs` is already there)
 
-- [ ] **Step 1: ヘッダ更新**
+- [ ] **Step 1: Update header**
 
 ```cpp
 #ifndef KACHAKA_AUTOWARE_VEHICLE_INTERFACE_VEHICLE_INTERFACE_NODE_HPP_
@@ -2851,9 +2851,9 @@ private:
 #endif  // KACHAKA_AUTOWARE_VEHICLE_INTERFACE_VEHICLE_INTERFACE_NODE_HPP_
 ```
 
-- [ ] **Step 2: 実装更新**
+- [ ] **Step 2: Update implementation**
 
-`vehicle_interface_node.cpp` を以下に置き換え:
+Replace `vehicle_interface_node.cpp` with:
 
 ```cpp
 #include "kachaka_autoware_vehicle_interface/vehicle_interface_node.hpp"
@@ -3009,19 +3009,19 @@ void VehicleInterfaceNode::enable_manual_control(bool enable)
 }  // namespace kachaka_autoware_vehicle_interface
 ```
 
-- [ ] **Step 3: ビルド**
+- [ ] **Step 3: Build**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/ros/jazzy
 colcon build --packages-select kachaka_autoware_vehicle_interface
 ```
 
-期待結果: ビルド成功
+Expected result: build succeeds.
 
-- [ ] **Step 4: 単体起動確認**
+- [ ] **Step 4: Standalone smoke test**
 
-実行コマンド:
+Run:
 ```bash
 source ~/ros/jazzy/install/setup.bash
 ros2 launch kachaka_autoware_vehicle_interface vehicle_interface.launch.xml &
@@ -3032,22 +3032,22 @@ ros2 topic echo --once /system/operation_mode/state
 kill %1
 ```
 
-期待結果:
-- `/system/operation_mode/state`, `/vehicle/status/velocity_status`, `/kachaka/manual_control/cmd_vel` が見える
-- `change_to_autonomous`, `change_to_stop` サービスが見える
-- `OperationModeState` の `mode: 1`（STOP）が確認できる
+Expected result:
+- `/system/operation_mode/state`, `/vehicle/status/velocity_status`, and `/kachaka/manual_control/cmd_vel` are visible.
+- `change_to_autonomous` and `change_to_stop` services are visible.
+- `OperationModeState` shows `mode: 1` (STOP).
 
-- [ ] **Step 5: 暫定 temp_velocity_relay.launch.xml の削除**
+- [ ] **Step 5: Remove the temporary temp_velocity_relay.launch.xml**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/src/kachaka-api
 rm ros2/kachaka_autoware_bridge/launch/temp_velocity_relay.launch.xml
 ```
 
-- [ ] **Step 6: コミット**
+- [ ] **Step 6: Commit**
 
-実行コマンド:
+Run:
 ```bash
 cd ~/src/kachaka-api
 git add ros2/kachaka_autoware_vehicle_interface/ ros2/kachaka_autoware_bridge/launch/temp_velocity_relay.launch.xml
@@ -3069,57 +3069,57 @@ EOF
 
 ---
 
-### Task 29: M3 Vehicle Interface 実機統合確認
+### Task 29: M3 Vehicle Interface integration check on real hardware
 
-**目的:** Vehicle Interface が Kachaka と組み合わせて正しく動くことを確認。
+**Purpose:** Confirm the Vehicle Interface behaves correctly together with Kachaka.
 
-- [ ] **Step 1: 統合起動**
+- [ ] **Step 1: Integrated startup**
 
-ターミナル A:
+Terminal A:
 ```bash
 source ~/ros/jazzy/install/setup.bash
 ros2 launch kachaka_grpc_ros2_bridge grpc_ros2_bridge.launch.xml \
   server_uri:=192.168.1.91:26400 namespace:=kachaka
 ```
 
-ターミナル B:
+Terminal B:
 ```bash
 source ~/ros/jazzy/install/setup.bash
 ros2 launch kachaka_autoware_vehicle_interface vehicle_interface.launch.xml
 ```
 
-- [ ] **Step 2: 自動 manual_control 有効化確認**
+- [ ] **Step 2: Verify automatic manual_control activation**
 
-実行コマンド（別ターミナル）:
+Run (in another terminal):
 ```bash
 ros2 topic echo --once /vehicle/status/velocity_status
 ros2 topic echo --once /system/operation_mode/state
 ```
 
-期待結果: VelocityReport, OperationModeState が出る。Vehicle Interface 起動ログに `Requested set_manual_control_enabled(true)` がある。
+Expected result: VelocityReport and OperationModeState publish. The Vehicle Interface startup log contains `Requested set_manual_control_enabled(true)`.
 
-- [ ] **Step 3: AUTONOMOUS 遷移と疑似Control 送信**
+- [ ] **Step 3: Transition to AUTONOMOUS and send a synthetic Control**
 
-実行コマンド:
+Run:
 ```bash
-# AUTONOMOUS にする
+# Switch to AUTONOMOUS
 ros2 service call /system/operation_mode/change_to_autonomous \
   autoware_adapi_v1_msgs/srv/ChangeOperationMode "{}"
 
-# 疑似 Control を 1 回送る（v=0.1, delta=0）
+# Publish a synthetic Control once (v=0.1, delta=0)
 ros2 topic pub --once /control/command/control_cmd \
   autoware_control_msgs/msg/Control \
   '{longitudinal: {velocity: 0.1, acceleration: 0.0}, lateral: {steering_tire_angle: 0.0}}'
 
-# 受信できたかどうか
+# Confirm it was relayed
 ros2 topic echo --once /kachaka/manual_control/cmd_vel
 ```
 
-期待結果: `cmd_vel` に `linear.x: 0.1, angular.z: 0.0` が出る。Kachaka 本体が前進する（or `set_manual_control_enabled` が事前に有効化されているなら 0.1 m/s で動く）。**注意: 安全のためまず Kachakaを浮かせておく or 衝突しない場所で実施。**
+Expected result: `cmd_vel` shows `linear.x: 0.1, angular.z: 0.0`. Kachaka moves forward (or, if `set_manual_control_enabled` was already true, it moves at 0.1 m/s). **Safety note: lift Kachaka off the ground or run this in a collision-free area.**
 
-- [ ] **Step 4: STOP 戻し**
+- [ ] **Step 4: Return to STOP**
 
-実行コマンド:
+Run:
 ```bash
 ros2 service call /system/operation_mode/change_to_stop \
   autoware_adapi_v1_msgs/srv/ChangeOperationMode "{}"
@@ -3129,37 +3129,37 @@ ros2 topic pub --once /control/command/control_cmd \
 ros2 topic echo --once /kachaka/manual_control/cmd_vel
 ```
 
-期待結果: STOP 中は `cmd_vel` が更新されない（または zero Twist のみ）。Kachaka は停止状態。
+Expected result: while STOP, `cmd_vel` is not updated (or only zero Twist). Kachaka stays still.
 
-- [ ] **Step 5: コミット — 検証メモのみ（コード変更なし）**
+- [ ] **Step 5: Commit — verification notes only (no code changes)**
 
-修正なしなら skip。
-
----
-
-### Task 30: M3 完了確認
-
-**目的:** M3 の完了条件「Control→Twist 変換、velocity_status、operation_mode 状態機械、ManualControl 自動有効化」を確認。
-
-- [ ] **Step 1: チェックリスト**
-
-1. `colcon test` で全 gtest PASS
-2. `vehicle_interface` 起動時 `set_manual_control_enabled(true)` が呼ばれる
-3. AUTONOMOUS 時のみ `cmd_vel` が流れる
-4. `/vehicle/status/velocity_status` が 50 Hz で出る
-5. `/system/operation_mode/state` が 10 Hz で出る
-6. `change_to_autonomous`, `change_to_stop` サービスが応答する
-7. `cmd_vel_timeout` 経過時に zero Twist が出る
-
-- [ ] **Step 2: コミットなし**
-
-検証のみ。
+Skip if there is nothing to record.
 
 ---
 
-### Task 31: AD-API 起動 launch ラッパー
+### Task 30: M3 exit checkpoint
 
-**目的:** `autoware_core_api.launch.xml` を kachaka 統合用に呼び出す。
+**Purpose:** Confirm the M3 exit criteria: Control->Twist conversion, velocity_status, operation_mode state machine, automatic ManualControl enable.
+
+- [ ] **Step 1: Checklist**
+
+1. `colcon test` runs all gtests with PASS.
+2. `vehicle_interface` calls `set_manual_control_enabled(true)` on startup.
+3. `cmd_vel` only flows while AUTONOMOUS.
+4. `/vehicle/status/velocity_status` publishes at 50 Hz.
+5. `/system/operation_mode/state` publishes at 10 Hz.
+6. `change_to_autonomous` and `change_to_stop` services respond.
+7. After `cmd_vel_timeout`, a zero Twist is published.
+
+- [ ] **Step 2: No commit**
+
+Verification only.
+
+---
+
+### Task 31: AD-API launch wrapper
+
+**Purpose:** Wrap `autoware_core_api.launch.xml` for the Kachaka integration.
 
 **Files:**
 - Create: `ros2/kachaka_autoware_bridge/launch/api.launch.xml`
@@ -3179,16 +3179,16 @@ ros2 topic echo --once /kachaka/manual_control/cmd_vel
 </launch>
 ```
 
-- [ ] **Step 2: ビルド**
+- [ ] **Step 2: Build**
 
 ```bash
 cd ~/ros/jazzy
 colcon build --packages-select kachaka_autoware_bridge
 ```
 
-期待結果: ビルド成功
+Expected result: build succeeds.
 
-- [ ] **Step 3: 動作確認（単独）**
+- [ ] **Step 3: Standalone smoke test**
 
 ```bash
 source ~/ros/jazzy/install/setup.bash
@@ -3198,9 +3198,9 @@ ros2 service list | grep -E "/api/(localization|routing|operation_mode)"
 kill %1
 ```
 
-期待結果: `/api/localization/initialize`, `/api/routing/set_route_points` 等が見える（`/api/operation_mode/*` は autoware_core 版には無いので無くて良い）
+Expected result: services such as `/api/localization/initialize` and `/api/routing/set_route_points` are visible (`/api/operation_mode/*` is not provided by the autoware_core variant; that is fine).
 
-- [ ] **Step 4: コミット**
+- [ ] **Step 4: Commit**
 
 ```bash
 cd ~/src/kachaka-api
@@ -3215,9 +3215,9 @@ EOF
 
 ---
 
-### Task 32: Planning launch ラッパー
+### Task 32: Planning launch wrapper
 
-**目的:** `autoware_core_planning.launch.xml` を kachaka_autoware_description の vehicle_info で呼ぶ。
+**Purpose:** Invoke `autoware_core_planning.launch.xml` with the vehicle_info from kachaka_autoware_description.
 
 **Files:**
 - Create: `ros2/kachaka_autoware_bridge/launch/planning.launch.xml`
@@ -3232,15 +3232,15 @@ EOF
 
   <include file="$(find-pkg-share autoware_core_planning)/launch/autoware_core_planning.launch.xml">
     <arg name="vehicle_param_file" value="$(var vehicle_info_param_file)"/>
-    <!-- MVP: ObstacleStop 無効。後段 M6 で有効化 -->
+    <!-- MVP: ObstacleStop disabled; enabled later in M6 -->
     <arg name="motion_velocity_planner_launch_modules" value="[]"/>
   </include>
 </launch>
 ```
 
-注意: `autoware_core_planning.launch.xml` は `vehicle_model` 引数を要求する場合がある。エラーが出るなら `vehicle_model` を `kachaka` 等のダミー値で渡す（実際には `vehicle_info_param_file` だけ参照される）。
+Note: `autoware_core_planning.launch.xml` may require a `vehicle_model` argument. If it errors, pass a dummy `vehicle_model` such as `kachaka` (only `vehicle_info_param_file` is actually consumed).
 
-- [ ] **Step 2: ビルド & 単独起動確認**
+- [ ] **Step 2: Build and standalone smoke test**
 
 ```bash
 cd ~/ros/jazzy
@@ -3253,9 +3253,9 @@ ros2 node list | grep -E "(mission_planner|behavior_velocity|motion_velocity|vel
 kill %1
 ```
 
-期待結果: ノードが起動するが、map と localization が無いので一部 wait 状態。
+Expected result: the nodes start, though some remain in a wait state because map and localization are not running.
 
-- [ ] **Step 3: コミット**
+- [ ] **Step 3: Commit**
 
 ```bash
 cd ~/src/kachaka-api
@@ -3273,9 +3273,9 @@ EOF
 
 ---
 
-### Task 33: Control launch ラッパー
+### Task 33: Control launch wrapper
 
-**目的:** `autoware_core_control.launch.xml` を起動。`simple_pure_pursuit` の出力 `/control/command/control_cmd` が Vehicle Interface に届くようにする。
+**Purpose:** Launch `autoware_core_control.launch.xml` so `simple_pure_pursuit`'s output `/control/command/control_cmd` reaches the Vehicle Interface.
 
 **Files:**
 - Create: `ros2/kachaka_autoware_bridge/launch/control.launch.xml`
@@ -3294,7 +3294,7 @@ EOF
 </launch>
 ```
 
-- [ ] **Step 2: ビルド & 単独起動**
+- [ ] **Step 2: Build and standalone smoke test**
 
 ```bash
 cd ~/ros/jazzy
@@ -3306,9 +3306,9 @@ ros2 node list | grep simple_pure_pursuit
 kill %1
 ```
 
-期待結果: `simple_pure_pursuit` ノードが起動。
+Expected result: the `simple_pure_pursuit` node starts.
 
-- [ ] **Step 3: コミット**
+- [ ] **Step 3: Commit**
 
 ```bash
 cd ~/src/kachaka-api
@@ -3323,14 +3323,14 @@ EOF
 
 ---
 
-### Task 34: 統合 launch — kachaka_autoware.launch.xml
+### Task 34: Top-level launch — kachaka_autoware.launch.xml
 
-**目的:** すべてのコンポーネントを 1 launch で起動できるようにする。
+**Purpose:** Bring up every component via a single launch file.
 
 **Files:**
 - Create: `ros2/kachaka_autoware_bridge/launch/kachaka_autoware.launch.xml`
 
-- [ ] **Step 1: 統合 launch**
+- [ ] **Step 1: Top-level launch**
 
 ```xml
 <?xml version="1.0"?>
@@ -3378,18 +3378,18 @@ EOF
 </launch>
 ```
 
-注意: `vehicle/status/velocity_status` は autoware_core_sensing の `vehicle_velocity_converter` が読む。Vehicle Interface が発行するためロード順は `kachaka_autoware_vehicle_interface` が先（または並行）で良い（DDS は遅延起動を許容）。
+Note: `autoware_core_sensing`'s `vehicle_velocity_converter` reads `vehicle/status/velocity_status`. Since the Vehicle Interface publishes it, starting `kachaka_autoware_vehicle_interface` first (or in parallel) is fine — DDS tolerates late starts.
 
-- [ ] **Step 2: ビルド**
+- [ ] **Step 2: Build**
 
 ```bash
 cd ~/ros/jazzy
 colcon build --packages-select kachaka_autoware_bridge
 ```
 
-期待結果: ビルド成功
+Expected result: build succeeds.
 
-- [ ] **Step 3: コミット（実機検証は次タスク）**
+- [ ] **Step 3: Commit (real-hardware verification follows in the next task)**
 
 ```bash
 cd ~/src/kachaka-api
@@ -3407,33 +3407,33 @@ EOF
 
 ---
 
-### Task 35: M4 Planning 実機検証 + perception_stub の必要性判定
+### Task 35: M4 Planning verification on real hardware + perception_stub decision
 
-**目的:** Planning が `/planning/trajectory` を出すことを確認。perception 入力が必要なら `perception_stub` を追加する。
+**Purpose:** Confirm Planning publishes `/planning/trajectory`. If perception inputs are required, add a `perception_stub`.
 
-- [ ] **Step 1: 統合 launch を起動**
+- [ ] **Step 1: Run the integrated launch**
 
 ```bash
 source ~/ros/jazzy/install/setup.bash
 ros2 launch kachaka_autoware_bridge kachaka_autoware.launch.xml \
   server_uri:=192.168.1.91:26400 \
-  sensor_hostname:=<実機> \
+  sensor_hostname:=<actual hostname> \
   map_path:=$HOME/maps/kachaka_home
 ```
 
-- [ ] **Step 2: 各ノードのログ確認**
+- [ ] **Step 2: Inspect node logs**
 
-別ターミナル:
+In another terminal:
 ```bash
-ros2 node list | wc -l                           # 多数のノードが見える
+ros2 node list | wc -l                           # many nodes should appear
 ros2 topic list | grep -E "(planning|control|localization)" | head -20
 ```
 
-確認: `behavior_velocity_planner` や `motion_velocity_planner` が「topic not received」のエラーを出していないか。出していたら perception_stub が必要。
+Check: do `behavior_velocity_planner` or `motion_velocity_planner` log "topic not received" errors? If they do, a perception_stub is needed.
 
-- [ ] **Step 3: 必要に応じて perception_stub 追加**
+- [ ] **Step 3: Add perception_stub if required**
 
-エラーが `dynamic_objects` (`autoware_perception_msgs/PredictedObjects`)、`occupancy_grid_map`、`traffic_signals` 等の topic 未受信なら、空メッセージを 1 Hz で publish する `perception_stub.launch.xml` を作る:
+If errors complain about missing topics such as `dynamic_objects` (`autoware_perception_msgs/PredictedObjects`), `occupancy_grid_map`, or `traffic_signals`, create `perception_stub.launch.xml` that publishes empty messages at 1 Hz:
 
 ```xml
 <?xml version="1.0"?>
@@ -3445,18 +3445,18 @@ ros2 topic list | grep -E "(planning|control|localization)" | head -20
     <param name="expression" value="autoware_perception_msgs.msg.PredictedObjects()"/>
     <param name="import" value="['autoware_perception_msgs.msg']"/>
   </node>
-  <!-- 同様に他のトピックも -->
+  <!-- Add the same pattern for other topics as needed -->
 </launch>
 ```
 
-実際の topic_tools transform は **空入力からの publish ができない**ため、必要なら小さな Python ノードを `kachaka_autoware_bridge/scripts/perception_stub.py` として作る:
+`topic_tools transform` **cannot publish from an empty input**, so when needed, create a small Python node `kachaka_autoware_bridge/scripts/perception_stub.py`:
 
 ```python
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
 from autoware_perception_msgs.msg import PredictedObjects
-# 他の必要な型
+# add other required types
 
 
 class PerceptionStub(Node):
@@ -3483,14 +3483,14 @@ if __name__ == "__main__":
     main()
 ```
 
-CMakeLists.txt にも以下を追加:
+Also add the install rule to CMakeLists.txt:
 ```cmake
 install(PROGRAMS scripts/perception_stub.py DESTINATION lib/${PROJECT_NAME})
 ```
 
-- [ ] **Step 4: 必要なら perception_stub をコミット**
+- [ ] **Step 4: Commit perception_stub if implemented**
 
-実装した場合のみ:
+Only when implemented:
 ```bash
 cd ~/src/kachaka-api
 git add ros2/kachaka_autoware_bridge/scripts/ ros2/kachaka_autoware_bridge/CMakeLists.txt ros2/kachaka_autoware_bridge/launch/perception_stub.launch.xml
@@ -3501,11 +3501,11 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 36: 手動 set_route_points で trajectory 生成確認（M4 完了条件）
+### Task 36: Verify trajectory generation via manual set_route_points (M4 exit criteria)
 
-**目的:** AD-API の `set_route_points` を CLI から叩いて、`/planning/trajectory` が出ることを確認。
+**Purpose:** Hit AD-API `set_route_points` from the CLI and confirm `/planning/trajectory` publishes.
 
-- [ ] **Step 1: 統合 launch 起動済み前提で初期姿勢設定**
+- [ ] **Step 1: With the integrated launch already running, set the initial pose**
 
 ```bash
 ros2 service call /api/localization/initialize \
@@ -3513,9 +3513,9 @@ ros2 service call /api/localization/initialize \
   "{pose_with_covariance: [{header: {frame_id: 'map'}, pose: {pose: {position: {x: 0.0, y: 0.0, z: 0.0}, orientation: {w: 1.0}}, covariance: [0.25, 0,0,0,0,0, 0,0.25,0,0,0,0, 0,0,0,0,0,0, 0,0,0,0.0,0,0, 0,0,0,0,0.0,0, 0,0,0,0,0,0.0698]}}]}"
 ```
 
-期待結果: NDT が monte carlo で初期姿勢を確定。
+Expected result: NDT settles on an initial pose via Monte Carlo.
 
-- [ ] **Step 2: 1 点ゴールを送る**
+- [ ] **Step 2: Send a single-point goal**
 
 ```bash
 ros2 service call /api/routing/set_route_points \
@@ -3523,30 +3523,30 @@ ros2 service call /api/routing/set_route_points \
   "{header: {frame_id: 'map'}, goal: {position: {x: 1.5, y: 0.0, z: 0.0}, orientation: {w: 1.0}}, waypoints: [], option: {}}"
 ```
 
-期待結果: trajectory が生成される。
+Expected result: a trajectory is generated.
 
-- [ ] **Step 3: trajectory の確認**
+- [ ] **Step 3: Verify the trajectory**
 
 ```bash
 ros2 topic echo --once /planning/trajectory | head -30
 ros2 topic hz /planning/trajectory
 ```
 
-期待結果: trajectory が定期的に publish される。
+Expected result: the trajectory is published periodically.
 
-- [ ] **Step 4: コミットなし（検証）**
+- [ ] **Step 4: No commit (verification)**
 
 ---
 
-### Task 37: M5 閉ループ動作（MVP達成）
+### Task 37: M5 closed-loop run (MVP achieved)
 
-**目的:** RViz から 1 点指定で Kachaka が目標到達することを確認。
+**Purpose:** Confirm Kachaka reaches a goal placed once in RViz.
 
-- [ ] **Step 1: rviz 設定ファイル作成**
+- [ ] **Step 1: Create the rviz config file**
 
 `/home/youtalk/src/kachaka-api/ros2/kachaka_autoware_bridge/config/autoware.rviz`:
 
-最小設定（autoware_rviz_plugins のパネルが入る）。RViz で対話的に設定して保存するのが楽:
+A minimal config with the autoware_rviz_plugins panels. The easiest path is to configure interactively in RViz and save:
 
 ```bash
 rviz2
@@ -3554,54 +3554,54 @@ rviz2
 #          MarkerArray(/planning/scenario_planning/lane_driving/behavior_planning/path),
 #          Path(/planning/trajectory)
 # Panels: InitialPoseButtonPanel, RouteTool, EngageButton, AutowareStatePanel
-# 保存: File → Save As → autoware.rviz
+# Save: File -> Save As -> autoware.rviz
 ```
 
-CMakeLists.txt にも install 追加:
+Add the install rule in CMakeLists.txt:
 
 ```cmake
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 ```
 
-- [ ] **Step 2: 統合 launch + RViz 起動**
+- [ ] **Step 2: Launch the integrated stack and RViz**
 
-ターミナル A（Thor上）:
+Terminal A (on Thor):
 ```bash
 ros2 launch kachaka_autoware_bridge kachaka_autoware.launch.xml \
   server_uri:=192.168.1.91:26400 \
-  sensor_hostname:=<実機> \
+  sensor_hostname:=<actual hostname> \
   map_path:=$HOME/maps/kachaka_home
 ```
 
-ターミナル B（開発PC）:
+Terminal B (development PC):
 ```bash
 rviz2 -d $(ros2 pkg prefix kachaka_autoware_bridge)/share/kachaka_autoware_bridge/config/autoware.rviz
 ```
 
-- [ ] **Step 3: MVP 操作シーケンス（仕様書 §10.3）**
+- [ ] **Step 3: MVP operating sequence (spec §10.3)**
 
-1. RViz の `InitialPoseButtonPanel` で「Initialize」を押す（or `2D Pose Estimate` で粗くポーズ指定）
-2. NDT が収束してロボットが地図上の正しい位置に表示される
-3. `RouteTool`（or 標準 `2D Goal Pose`）で 1.5 m 先にゴールを置く
-4. trajectory が描画される
-5. `EngageButton` を押す
-6. Kachaka が動き出す → 目標位置に到達 → 自動停止
+1. Click "Initialize" on RViz `InitialPoseButtonPanel` (or use `2D Pose Estimate` for a rough pose).
+2. NDT converges and the robot is shown at the correct position on the map.
+3. Use `RouteTool` (or the standard `2D Goal Pose`) to set a goal about 1.5 m ahead.
+4. The trajectory is rendered.
+5. Press `EngageButton`.
+6. Kachaka starts moving, reaches the goal, and stops automatically.
 
-- [ ] **Step 4: 成功条件確認（仕様書 §13.3）**
+- [ ] **Step 4: Success criteria check (spec §13.3)**
 
-- ゴール ± 0.3 m / ± 0.2 rad 以内に到達
-- 人手介入なし
+- Reach the goal within +/-0.3 m and +/-0.2 rad.
+- No human intervention.
 
-5 箇所 × 3 回試行して 80% 以上成功なら MVP 達成。
+MVP is achieved when 5 different goals each succeed 80% of the time across 3 attempts.
 
-- [ ] **Step 5: 失敗時の調整候補**
+- [ ] **Step 5: Tuning candidates on failure**
 
-- `wheel_base` 仮想値（vehicle_info.param.yaml）— 旋回が鋭すぎ→大きく、鈍い→小さく
-- `simple_pure_pursuit` の `lookahead_gain` / `lookahead_min_distance`
-- NDT の voxel_size、iterations
-- EKF の Q/R 共分散
+- `wheel_base` virtual value (vehicle_info.param.yaml) — increase if turning is too sharp, decrease if too sluggish.
+- `simple_pure_pursuit` `lookahead_gain` / `lookahead_min_distance`.
+- NDT `voxel_size` and iteration count.
+- EKF Q/R covariances.
 
-調整したら、対応する yaml を編集してコミット:
+After tuning, edit the corresponding yaml and commit:
 ```bash
 git add ros2/kachaka_autoware_description/config/vehicle_info.param.yaml
 git commit -m "tune(description): adjust wheel_base virtual value to X.XX based on M5
@@ -3609,9 +3609,9 @@ git commit -m "tune(description): adjust wheel_base virtual value to X.XX based 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 6: 検証完了 → リリースノート / README 追記**
+- [ ] **Step 6: Verification complete -> release notes / README addendum**
 
-`docs/superpowers/specs/2026-05-02-kachaka-autoware-core-design.md` の §16 リスク欄を「M5 で実機調整完了、wheel_base = X.XX」と書き換えるか、`kachaka_autoware_bridge/README.md` を新規作成して MVP 達成報告を残す。
+Either rewrite the §16 risk row of `docs/superpowers/specs/2026-05-02-kachaka-autoware-core-design.md` to "M5 hardware tuning complete, wheel_base = X.XX", or create a new `kachaka_autoware_bridge/README.md` that records the MVP achievement.
 
 ```bash
 git add ros2/kachaka_autoware_bridge/README.md
@@ -3626,64 +3626,64 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 ### Spec coverage
 
-仕様書の各セクションに対応するタスクを確認:
+Map each spec section to the corresponding tasks:
 
 | Spec section | Task |
 |---|---|
 | §3.3-1 pointcloud_map | Task 2 |
 | §3.3-2 lanelet2 | Task 3 |
-| §3.3-3 OS-1 物理固定 | Task 4 |
-| §4.2 TF tree (docking_link → shelf → os1) | Task 6, 7 (URDF) |
-| §4.3 座標系整合 | Task 3 (Vector Map Builder で整合) |
-| §5 kachaka_description 改良 | Task 6 |
-| §5 新規パッケージ構成 | Task 5, 7, 10, 12 |
+| §3.3-3 OS-1 physical mounting | Task 4 |
+| §4.2 TF tree (docking_link -> shelf -> os1) | Task 6, 7 (URDF) |
+| §4.3 Frame alignment | Task 3 (alignment via Vector Map Builder) |
+| §5 kachaka_description enhancements | Task 6 |
+| §5 New package layout | Task 5, 7, 10, 12 |
 | §6 Localization | Task 14, 16 |
-| §6.1 wheel_odometry 検証 | Task 16 Step 5, Task 17 |
+| §6.1 wheel_odometry verification | Task 16 Step 5, Task 17 |
 | §7 Planning | Task 32 |
-| §7.1 ゴール受信フロー | Task 31, 36 |
+| §7.1 Goal-receiving flow | Task 31, 36 |
 | §8 Control | Task 33 |
-| §9.1.A Control→Twist | Task 20-22, 27 |
-| §9.1.B cmd_vel ゲート | Task 27 |
+| §9.1.A Control->Twist | Task 20-22, 27 |
+| §9.1.B cmd_vel gate | Task 27 |
 | §9.1.C VelocityReport | Task 25, 28 |
-| §9.1.D ManualControl 自動 | Task 28 |
+| §9.1.D Automatic ManualControl | Task 28 |
 | §9.1.E Operation Mode | Task 23-24, 28 |
-| §9.2 設定 | Task 26 |
+| §9.2 Settings | Task 26 |
 | §9.3 vehicle_info | Task 8 |
 | §10 AD-API | Task 31 |
-| §10.2 RViz panels | Task 1 (clone), 37 (RViz設定) |
-| §10.3 操作シーケンス | Task 37 |
-| §11 データフロー | Task 34 (統合 launch) |
-| §12 エラー処理 timeout | Task 28 (zero Twist failsafe) |
-| §13.1 単体テスト | Task 20-25 |
-| §13.3 システムテスト | Task 37 |
-| §14 マイルストーン | Task 1-37 全体 |
-| §16 リスク wheel_base 調整 | Task 37 Step 5 |
-| §16 リスク wheel_odometry | Task 16 Step 5 + Task 17 |
+| §10.2 RViz panels | Task 1 (clone), 37 (RViz config) |
+| §10.3 Operating sequence | Task 37 |
+| §11 Data flow | Task 34 (top-level launch) |
+| §12 Error handling / timeout | Task 28 (zero Twist failsafe) |
+| §13.1 Unit tests | Task 20-25 |
+| §13.3 System tests | Task 37 |
+| §14 Milestones | Task 1-37 (all) |
+| §16 Risk: wheel_base tuning | Task 37 Step 5 |
+| §16 Risk: wheel_odometry | Task 16 Step 5 + Task 17 |
 
-ギャップ確認:
-- §13.2 結合テスト（rosbag 回帰）: M5 後の運用フェーズで作る想定で MVP には含めず（仕様書 §2.2 後続フェーズ扱い相当）。OK
-- §16 リスク NDT divergence: M5 で実機調整時に対応（Task 37 Step 5）。OK
-- §17 オープンな質問: MVP では決定不要、後続でOK
-- §16 障害物停止 (M6): MVP外（仕様書 §2.2 OOS）。Task 32 で `motion_velocity_planner_launch_modules: []` で MVP 中は無効化済。OK
+Gap analysis:
+- §13.2 integration tests (rosbag regression): out of scope for MVP, planned for the post-M5 operations phase (matches the spec §2.2 follow-on framing). OK
+- §16 risk NDT divergence: handled during M5 hardware tuning (Task 37 Step 5). OK
+- §17 open questions: not required for MVP; defer. OK
+- §16 obstacle stop (M6): out of scope for MVP (spec §2.2 OOS). Disabled in Task 32 via `motion_velocity_planner_launch_modules: []`. OK
 
 ### Placeholder scan
 
-- "TBD" / "TODO" / "implement later": なし。実装まちのものは Task 35 の perception_stub だけで、これは実装条件を明記してある（必要なら作る、なら作らない）。
-- "Add appropriate error handling": なし（具体的な timeout 値・rate を明記）。
-- "Similar to Task N": なし（Task 21-22 は別タスクで内容を完全展開）。
-- 不明な型 / 関数: 全て定義タスクが先行する（`ControlToTwistConverter` は Task 21、`OperationModeStateMachine` は Task 24、`convert_odometry_to_velocity_report` は Task 25）。OK
+- "TBD" / "TODO" / "implement later": none. The only conditional implementation is Task 35's perception_stub, with explicit implement-if-needed criteria.
+- "Add appropriate error handling": none (concrete timeout values and rates are stated).
+- "Similar to Task N": none (Task 21-22 is fully expanded as separate tasks).
+- Unknown types / functions: every type and function is defined in a preceding task (`ControlToTwistConverter` in Task 21, `OperationModeStateMachine` in Task 24, `convert_odometry_to_velocity_report` in Task 25). OK
 
 ### Type consistency
 
-- `ControlToTwistConverter` / `ControlToTwistParams`: Task 20 ヘッダ宣言 → Task 21 実装。一貫。
-- `OperationMode` enum / `OperationModeStateMachine`: Task 23 → 24 で一貫。
-- `convert_odometry_to_velocity_report`（snake_case 関数）: Task 25 で一貫。
-- `VehicleInterfaceNode`: Task 26 → 27 → 28 で段階的拡張。フィールド名・メソッド名一貫。
-- launch 名: `vehicle_interface.launch.xml`, `kachaka_autoware.launch.xml`, `localization.launch.xml`, `planning.launch.xml`, `control.launch.xml`, `api.launch.xml`, `sensor_ouster.launch.xml`. 全て下流から参照される名で一貫。
+- `ControlToTwistConverter` / `ControlToTwistParams`: header declared in Task 20, implemented in Task 21. Consistent.
+- `OperationMode` enum / `OperationModeStateMachine`: consistent across Task 23 and 24.
+- `convert_odometry_to_velocity_report` (snake_case function): consistent in Task 25.
+- `VehicleInterfaceNode`: incrementally extended in Task 26 -> 27 -> 28. Field and method names are consistent.
+- launch names: `vehicle_interface.launch.xml`, `kachaka_autoware.launch.xml`, `localization.launch.xml`, `planning.launch.xml`, `control.launch.xml`, `api.launch.xml`, `sensor_ouster.launch.xml`. All names are consistent with their downstream references.
 
-### スコープチェック
+### Scope check
 
-仕様書 M0〜M5 を 37 タスクでカバー。M6 は範囲外（仕様書通り）。タスクは独立して実装でき、各タスクの完了条件が明確。1 つの実装計画で進められる。
+37 tasks cover spec milestones M0-M5. M6 is out of scope (matching the spec). Each task is independently implementable with clear exit criteria, and the work fits in a single implementation plan.
 
 ---
 
@@ -3693,16 +3693,16 @@ Plan complete and saved to `docs/superpowers/plans/2026-05-02-kachaka-autoware-c
 
 Two execution options:
 
-**1. Subagent-Driven (recommended)** — fresh subagent per task, review between tasks, fast iteration. M3 のような TDD タスクでは特に有効。
+**1. Subagent-Driven (recommended)** — fresh subagent per task, review between tasks, fast iteration. Particularly effective for the TDD-style tasks in M3.
 
-**2. Inline Execution** — このセッション内でバッチ実行、チェックポイントで一時停止。M0 のような実機作業がブロックすると進めない。
+**2. Inline Execution** — batched execution in this session with pauses at checkpoints. Stalls when blocked on real-hardware work like M0.
 
 **Which approach?**
 
-ただしこの計画には **物理作業 / 実機作業 / 外部ハードウェア依存タスク** が多数含まれます:
-- Task 2 (M0 マッピング走行)
-- Task 3 (Vector Map Builder Web UI 操作)
-- Task 4 (OS-1 物理固定)
-- Task 11, 16, 29, 35, 36, 37 (実機検証)
+This plan also contains many **physical / real-hardware / external-hardware-dependent tasks**:
+- Task 2 (M0 mapping drive)
+- Task 3 (Vector Map Builder web UI work)
+- Task 4 (OS-1 physical mounting)
+- Task 11, 16, 29, 35, 36, 37 (real-hardware verification)
 
-これらはエージェント単独では完了できないため、**コード実装タスク (Task 5-10, 12, 14-15, 20-28, 31-34) と実機タスクを分離**して進めることを推奨します。
+These cannot be completed by an agent alone, so the recommended workflow is to **split the code-implementation tasks (Task 5-10, 12, 14-15, 20-28, 31-34) from the hardware tasks** and run them separately.
