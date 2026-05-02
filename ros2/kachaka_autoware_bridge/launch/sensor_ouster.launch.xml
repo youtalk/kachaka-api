@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <launch>
-  <arg name="sensor_hostname" default="os-122000000000.local"
-       description="Ouster OS-1 hostname or IP. Override per robot."/>
+  <arg name="sensor_hostname" default="os-sensor.local"
+       description="Ouster OS-1 hostname or IP. Override per robot (e.g. os-&lt;serial&gt;.local)."/>
   <arg name="metadata" default="/tmp/os1_metadata.json"
        description="Path to ouster metadata cache"/>
 

@@ -9,8 +9,8 @@ repository; they live under `~/maps/<location_name>/` on the user machine.
 - Ouster OS-1 128 (or any equivalent 3D LiDAR) is rigidly mounted on the
   Kachaka shelf top.
 - The `ouster-ros` driver can publish point clouds and IMU samples.
-- The Kachaka 2D LiDAR is **not** used in this pipeline (the home unit's 2D
-  LiDAR is broken — the Autoware integration intentionally bypasses it).
+- The pipeline uses the 3D LiDAR exclusively for both mapping and
+  localization; Kachaka's built-in 2D LiDAR is not part of this stack.
 
 ## Directory layout
 
@@ -56,8 +56,9 @@ Vector Map Builder export used "Local Cartesian".
 ```yaml
 x_resolution: 50.0
 y_resolution: 50.0
-A.pcd: [0, 0]
+pointcloud_map.pcd: [0, 0]
 ```
 
-Refer to the `autoware_map_loader` documentation for the full schema if you
-later split the map into multiple tiles.
+The map filename in the metadata must match the actual PCD file in the
+layout above. Refer to the `autoware_map_loader` documentation for the
+full schema if you later split the map into multiple tiles.

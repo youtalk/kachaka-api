@@ -3,7 +3,7 @@
 <package format="3">
   <name>kachaka_autoware_bridge</name>
   <version>0.0.0</version>
-  <description>Top-level launch and integration glue connecting the Kachaka gRPC ROS 2 bridge to Autoware Core.</description>
+  <description>Launch wrappers connecting Kachaka sensors to Autoware Core. Currently provides the Ouster OS-1 driver wrapper that publishes onto Autoware-expected topics; additional launches (localization, planning, control, integrated bringup) land in subsequent PRs.</description>
   <maintainer email="yutaka.kondo@youtalk.jp">Yutaka Kondo</maintainer>
   <license>Apache License 2.0</license>
   <author email="yutaka.kondo@youtalk.jp">Yutaka Kondo</author>
@@ -13,11 +13,6 @@
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>launch_xml</exec_depend>
   <exec_depend>topic_tools</exec_depend>
-
-  <exec_depend>kachaka_grpc_ros2_bridge</exec_depend>
-  <exec_depend>kachaka_autoware_description</exec_depend>
-  <exec_depend>kachaka_autoware_maps</exec_depend>
-
   <exec_depend>ouster_ros</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
