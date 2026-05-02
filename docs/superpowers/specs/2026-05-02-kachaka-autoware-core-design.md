@@ -38,6 +38,7 @@ Kachaka を Autoware Core のパッケージで自律移動させる。Kachaka�
 - Kachaka 本体は IP 192.168.1.91 で gRPC API（port 26400）を提供。
 - Thor 上で Autoware 一式と `kachaka_grpc_ros2_bridge` を動かす。
 - 開発 PC 上で RViz2 + autoware_rviz_plugins を動かし、Thor と同じ ROS_DOMAIN_ID で通信。
+- **Kachakaの 2D LiDAR は故障しているため使用しない**。Kachaka 内蔵の地図作成・自己位置推定は当てにせず、Autoware NDT が唯一の自己位置推定手段。Kachaka の `/scan` トピックも購読しない。
 
 ### 3.2 ソフトウェア前提
 
@@ -52,8 +53,8 @@ Kachaka を Autoware Core のパッケージで自律移動させる。Kachaka�
 
 MVP に入る前に以下が完了している必要がある（M0 マイルストーン）:
 
-1. **pointcloud_map の作成**: OS-1 128 を持って自宅をマッピング（lio_sam, fast_lio, glim 等）し、`pointcloud_map.pcd` + `pointcloud_map/metadata.yaml` を生成する。
-2. **lanelet2 vector_map の作成**: TIER IV の Vector Map Builder で自宅の通行可能領域に最小限のレーンを引き、`lanelet2_map.osm` + `map_projector_info.yaml` を生成する。**lanelet2 の local projection 原点を Kachaka の map 原点と一致させる**。
+1. **pointcloud_map の作成**: **OS-1 128 単独で**自宅をマッピング（lio_sam, fast_lio, glim 等）し、`pointcloud_map.pcd` + `pointcloud_map/metadata.yaml` を生成する。Kachaka の 2D LiDAR は故障しているため補助に使えない。マッピング時は Kachaka を手押し or テレオペで動かすか、別途 OS-1 を手で持って歩く。
+2. **lanelet2 vector_map の作成**: TIER IV の Vector Map Builder で自宅の通行可能領域に最小限のレーンを引き、`lanelet2_map.osm` + `map_projector_info.yaml` を生成する。**pointcloud_map と lanelet2 vector_map は同一の local projection 原点で生成**する（座標系の整合は §4.3 を参照）。
 3. **Ouster OS-1 のシェルフへの物理固定** とキャリブレーション値（base_footprint → os1_sensor の static transform）の取得。
 
 ### 3.4 設計判断（合意済み）
@@ -170,6 +171,7 @@ ros2/
 - Kachaka wheel odometry: 既存 `wheel_odometry_component` の `/kachaka/wheel_odometry/wheel_odometry`
   - Vehicle Interface が `/vehicle/status/velocity_status` (`autoware_vehicle_msgs/VelocityReport`) として再発行
   - `vehicle_velocity_converter` が `/sensing/vehicle_velocity_converter/twist_with_covariance` に変換
+  - **要検証**: Kachaka 内部で `wheel_odometry` がホイールエンコーダ＋IMU ベースで生成されている前提だが、もし内部実装が 2D LiDAR にも依存していると故障の影響を受ける可能性がある。M2 立ち上げ時に実機で確認し、もし使えない場合は IMU (`/kachaka/imu/imu`) と Kachaka の `wheel_odometry` の角速度成分のみから自前で twist を組み立てる代替経路を実装する
 
 ### 6.2 構成
 
@@ -197,7 +199,7 @@ ros2/
 `autoware_core_planning.launch.xml` をほぼそのまま使い、以下を調整:
 
 - `vehicle_param_file`: 新規 `kachaka_autoware_description/config/vehicle_info.param.yaml`
-- `motion_velocity_planner_launch_modules`: MVPでは `[]`（ObstacleStop 無効）。M6 で有効化。
+- `motion_velocity_planner_launch_modules`: MVPでは `[]`（ObstacleStop 無効）。M6 で有効化する際は **OS-1 128 由来の点群** を `/perception/obstacle_segmentation/pointcloud` に流す（Kachaka の 2D LiDAR は故障しているため使えない）。地面除去は `autoware_crop_box_filter` 等で対応。
 - 入力 perception トピック（`/perception/object_recognition/objects`, `/perception/obstacle_segmentation/pointcloud`, `/perception/traffic_light_recognition/traffic_signals`, `/perception/occupancy_grid_map/map` 等）は M4 立ち上げ時に **実機検証** する。`behavior_velocity_planner` / `motion_velocity_planner` が起動できないトピックがあれば `kachaka_autoware_bridge` 内で空メッセージを 1 Hz で publish する補助ノード `perception_stub` を追加する（M4 で必要性判定）。
 
 ### 7.1 ゴール受信フロー
@@ -391,13 +393,13 @@ OS-1 → /sensing/lidar/top/pointcloud_raw_ex
 
 | ID | 内容 | 完了条件 |
 |---|---|---|
-| **M0** | 事前作業 | pointcloud_map.pcd / lanelet2_map.osm / OS-1 物理固定 + キャリブ |
+| **M0** | 事前作業 | OS-1 単独で pointcloud_map.pcd 作成 / lanelet2_map.osm 作成（同一原点）/ OS-1 物理固定 + キャリブ |
 | **M1** | センサー統合 | OS-1 が ROS 2 で発行、TF ツリー完成、RViz で base_footprint 基準の点群が見える |
-| **M2** | Localization | NDT + EKF が `/localization/kinematic_state` を出す（Kachaka 静止状態で確認） |
+| **M2** | Localization | NDT + EKF が `/localization/kinematic_state` を出す（Kachaka 静止状態で確認）。`wheel_odometry` の妥当性を実機確認、NG なら IMU フォールバック実装 |
 | **M3** | Vehicle Interface 基盤 | Control→Twist 変換、velocity_status、operation_mode 状態機械、ManualControl 自動有効化 |
 | **M4** | Planning | mission_planner→trajectory 生成（手動 trigger） |
 | **M5** | 閉ループ | AD-API + RViz から 1 点指定で Kachaka が移動（**MVP 達成**） |
-| **M6** | 仕上げ | 障害物停止 / 複数waypoint / dock 連携（後続フェーズ） |
+| **M6** | 仕上げ | OS-1 由来の障害物停止 / 複数waypoint / dock 連携（後続フェーズ） |
 
 ## 15. 将来拡張への余地（B → C へ）
 
@@ -408,10 +410,12 @@ Vehicle Interface のサブモジュール分離（Control 変換 / velocity_sta
 | 項目 | リスク | 対応 |
 |---|---|---|
 | `wheel_base` 仮想値のチューニング | 旋回特性が直感に合わない可能性 | M5 で実機値調整、param.yaml に明記 |
-| pointcloud_map 作成の手間 | M0 で時間がかかる | lio_sam / fast_lio 経験者の知見をリサーチ |
-| 屋内 NDT のロバスト性 | 特徴の少ない壁面で divergence | M2 で実機評価、必要なら voxel_size 調整 |
+| pointcloud_map 作成の手間 | M0 で時間がかかる、Kachakaの 2D LiDAR が壊れているため OS-1 単独で行うしかない | lio_sam / fast_lio / glim 経験者の知見をリサーチ。手押し / テレオペでマッピング走行 |
+| 屋内 NDT のロバスト性 | 特徴の少ない壁面で divergence。Kachakaの SLAM を fallback に使えない | M2 で実機評価、必要なら voxel_size 調整。NDT 単独失敗時のフェイルセーフは AUTONOMOUS 自動解除（pose error チェック）で対応 |
+| Kachaka `wheel_odometry` の妥当性 | 2D LiDAR 故障の影響で内部融合がおかしい可能性 | M2 で実機検証。NG なら IMU + 角速度から twist を自前生成する代替経路を実装 |
 | OS-1 128 + Thor の発熱・電源 | シェルフ運用での連続動作 | 別途熱・電源設計（本仕様書の範囲外） |
 | Kachaka 内蔵 navigation との競合 | gRPC 側で独自に動き出す可能性 | `set_manual_control_enabled(true)` で抑止 |
+| 障害物停止の代替センサーが OS-1 のみ | 2D LiDAR 故障により Kachakaの近接センサ群を活用できない | M6 で OS-1 128 の点群を地面除去 → ObstacleStop 入力。地面除去パラメータが屋内向きにチューニングが必要 |
 
 ## 17. オープンな質問（実装前に決めたいが本仕様書では未確定）
 
