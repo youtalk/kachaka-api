@@ -608,6 +608,7 @@ EOF
   -->
   <xacro:macro name="shelf_3tier"
                params="parent
+                       *origin
                        shelf_name:=shelf
                        depth:=0.32
                        width:=0.38
@@ -615,12 +616,12 @@ EOF
                        board_thickness:=0.015
                        post_size:=0.020">
 
-    <!-- bottom-face center of the shelf is co-located with parent -->
+    <!-- bottom-face center of the shelf is at the origin block passed by the caller -->
     <link name="${shelf_name}_base_link"/>
     <joint name="${shelf_name}_base_joint" type="fixed">
       <parent link="${parent}"/>
       <child link="${shelf_name}_base_link"/>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <xacro:insert_block name="origin"/>
     </joint>
 
     <!-- 3 horizontal boards: bottom (z=0), middle, top -->
@@ -757,6 +758,7 @@ EOF
   <exec_depend>kachaka_description</exec_depend>
   <exec_depend>xacro</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>joint_state_publisher</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>launch_xml</exec_depend>
   <export>
@@ -868,11 +870,14 @@ ament_package()
   </xacro:kachaka_robot>
 
   <!--
-    3-tier shelf attached to docking_link.
-    docking_link is a prismatic joint (lift mechanism); placing the shelf as its
-    child means the shelf rises and falls with the lift, matching real operation.
+    3-tier shelf attached to docking_link with z=0.115 m so the shelf
+    bottom sits on top of the solenoid (cylinder center 0.1075 + half
+    length 0.0075). docking_link is a prismatic child of base_link, so
+    the shelf still rises and falls with the lift (up to +0.012 m).
   -->
-  <xacro:shelf_3tier parent="docking_link"/>
+  <xacro:shelf_3tier parent="docking_link">
+    <origin xyz="0 0 0.115" rpy="0 0 0"/>
+  </xacro:shelf_3tier>
 
   <!-- Ouster OS-1 mounted at the shelf top -->
   <xacro:ouster_os1 parent="shelf_top">
@@ -943,10 +948,12 @@ EOF
     wheel_width: 0.025
     wheel_base: 0.30
     wheel_tread: 0.20
-    front_overhang: 0.15
-    rear_overhang: 0.10
-    left_overhang: 0.05
-    right_overhang: 0.05
+    # Footprint overhangs from base_link origin (body collision center
+    # 0.0435,0,0.0475, size 0.387 x 0.240 x 0.095)
+    front_overhang: 0.237
+    rear_overhang: 0.150
+    left_overhang: 0.120
+    right_overhang: 0.120
     vehicle_height: 1.20
     max_steer_angle: 1.5708
 ```
@@ -1015,7 +1022,7 @@ sleep 5
 kill %1 %2 2>/dev/null
 ```
 
-期待結果: `/robot_description` トピックに URDF が流れる。TF tree に base_footprint → base_link → docking_link → shelf_base_link → shelf_top → os1_sensor が見える。`ros2 run tf2_ros tf2_echo base_footprint os1_sensor` で transform が取れる（z は 約 0.107 (docking_link) + 0.50 (shelf height) ≈ 0.61 m）
+期待結果: `/robot_description` トピックに URDF が流れる。TF tree に base_footprint → base_link → docking_link → shelf_base_link → shelf_top → os1_sensor が見える。`ros2 run tf2_ros tf2_echo base_footprint os1_sensor` で transform が取れる（z は base_link → docking_link 0 + ソレノイド上面までの 0.115 + shelf height 0.50 = 0.615 m。`base_footprint → os1_lidar` は + 0.03618 = 約 0.651 m）。`use_joint_state_publisher:=true` を渡すと docking_link / wheel の TF も埋まる。
 
 - [ ] **Step 5: コミット**
 
@@ -1226,7 +1233,7 @@ ros2 run tf2_ros tf2_echo base_footprint shelf_top
 ros2 run tf2_ros tf2_echo shelf_top os1_sensor
 ```
 
-期待結果: `base_footprint → os1_sensor` の z は概ね 0.50 m（shelf height）+ 0 (os1 mount offset) ≈ 0.50 m。`shelf_top → os1_sensor` は Task 4 で実測した OS-1 取付オフセット（中央取付なら全成分 0）。
+期待結果: `base_footprint → os1_sensor` の z は ソレノイド上面 0.115 + shelf height 0.50 + os1 mount offset 0 = 0.615 m。`shelf_top → os1_sensor` は Task 4 で実測した OS-1 取付オフセット（中央取付なら全成分 0）。
 
 - [ ] **Step 3: RViz2 で点群を可視化**
 

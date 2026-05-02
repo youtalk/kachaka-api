@@ -120,8 +120,9 @@ map  (NDT scan matcher)
 
 `map → odom`: `autoware_ekf_localizer` が public（既存）
 `odom → base_footprint`: Kachakaの `dynamic_tf_bridge`（既存）
-`base_footprint → base_link → ... → docking_link`: Kachakaの `_kachaka.urdf.xacro` + `robot_state_publisher`（既存、無変更）
-`docking_link → shelf_*`: `kachaka_description/urdf/_shelf_3tier.urdf.xacro`（**改良で追加**、純正 3 段シェルフはKachakaの装備品なので kachaka_description の責務）
+`base_footprint → base_link → ... → docking_link`: Kachakaの `_kachaka.urdf.xacro` + `robot_state_publisher`（既存、無変更）。`docking_link` フレームは `base_link` 原点に置かれ、prismatic joint で 0–0.012 m リフトする。
+`docking_link → shelf_base_link`: `kachaka_description/urdf/_shelf_3tier.urdf.xacro` の `shelf_3tier` マクロを呼ぶときに **`<origin xyz="0 0 0.115"/>` を渡してソレノイド上面（cylinder center 0.1075 + half-length 0.0075）にシェルフ底面を載せる**。これでドッキング・リフト時もシェルフが追従する。マクロ自体は `*origin` を受け取れるよう改良済み。
+`shelf_base_link → shelf_*`: 同 `_shelf_3tier.urdf.xacro`（**改良で追加**、純正 3 段シェルフはKachakaの装備品なので kachaka_description の責務）
 `shelf_top → os1_sensor → os1_lidar/imu`: `kachaka_autoware_description/urdf/_ouster_os1.urdf.xacro`（新規パッケージ）
 
 ### 4.3 座標系の整合
@@ -300,10 +301,10 @@ ros2/
     wheel_width: 0.025
     wheel_base: 0.30          # 仮想値、pure_pursuit の旋回係数として機能
     wheel_tread: 0.20         # Kachaka URDF 実値
-    front_overhang: 0.15
-    rear_overhang: 0.10
-    left_overhang: 0.05
-    right_overhang: 0.05
+    front_overhang: 0.237      # body collision +X: 0.0435 + 0.387/2
+    rear_overhang: 0.150       # body collision -X: -(0.0435 - 0.387/2)
+    left_overhang: 0.120       # body collision +Y: 0 + 0.240/2
+    right_overhang: 0.120      # body collision -Y: -(0 - 0.240/2)
     vehicle_height: 1.20      # シェルフ込み
     max_steer_angle: 1.5708
 ```

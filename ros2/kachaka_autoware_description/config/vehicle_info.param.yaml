@@ -10,11 +10,14 @@
     # in v * tan(delta) / wheel_base. Tune in M5 if turning is too sharp/dull.
     wheel_base: 0.30
 
-    # Footprint overhangs (Kachaka body 0.387 x 0.240, base_link offset -0.150 -0.120)
-    front_overhang: 0.15
-    rear_overhang: 0.10
-    left_overhang: 0.05
-    right_overhang: 0.05
+    # Footprint overhangs measured from base_link origin to body extents.
+    # Body collision box (kachaka_description/_kachaka.urdf.xacro):
+    #   center=(0.0435, 0, 0.0475), size=(0.387, 0.240, 0.095)
+    #   x range: -0.150 .. 0.237, y range: -0.120 .. 0.120
+    front_overhang: 0.237
+    rear_overhang: 0.150
+    left_overhang: 0.120
+    right_overhang: 0.120
 
     # Total height including the 3-tier shelf and the OS-1 on top
     vehicle_height: 1.20
