@@ -21,7 +21,11 @@ autoware_vehicle_msgs::msg::VelocityReport convert_odometry_to_velocity_report(
   const nav_msgs::msg::Odometry & odom)
 {
   autoware_vehicle_msgs::msg::VelocityReport report;
-  report.header = odom.header;
+  // VelocityReport carries body-frame velocities, so the frame_id must match
+  // the frame Odometry's twist is expressed in (child_frame_id, e.g.
+  // base_link), not the pose frame (header.frame_id, e.g. odom/map).
+  report.header.stamp = odom.header.stamp;
+  report.header.frame_id = odom.child_frame_id;
   report.longitudinal_velocity = static_cast<float>(odom.twist.twist.linear.x);
   // Differential drive: lateral velocity in body frame is identically zero.
   report.lateral_velocity = 0.0f;

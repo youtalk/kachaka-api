@@ -108,3 +108,25 @@ TEST(ControlToTwistConverter, ZeroVelocityZeroSteerYieldsZeroTwist)
   EXPECT_DOUBLE_EQ(twist.linear.x, 0.0);
   EXPECT_DOUBLE_EQ(twist.angular.z, 0.0);
 }
+
+TEST(ControlToTwistConverter, LinearSaturationPreservesCurvature)
+{
+  // Requested v = 1.0 m/s gets clamped to 0.3, but the steering angle is
+  // small enough that omega remains well within saturation. The resulting
+  // (v_clamped, omega) pair must still describe the same curvature
+  // tan(delta)/L the controller asked for; i.e. omega = v_clamped * tan(delta) / L,
+  // not v_unclamped * tan(delta) / L. Computing omega from the unclamped v
+  // (the previous behavior) would over-rotate by the saturation ratio
+  // 1.0/0.3 ≈ 3.3x.
+  ControlToTwistConverter converter(make_default_params());
+  const double delta = 0.1;
+  const auto twist = converter.convert(make_control(1.0, delta));
+
+  const double delta_f = static_cast<double>(static_cast<float>(delta));
+  const double expected_omega = 0.3 * std::tan(delta_f) / 0.30;
+  EXPECT_NEAR(twist.linear.x, 0.3, 1e-9);
+  EXPECT_NEAR(twist.angular.z, expected_omega, 1e-6);
+  // Sanity check against the would-be buggy value.
+  const double buggy_omega = 1.0 * std::tan(delta_f) / 0.30;
+  EXPECT_LT(std::abs(twist.angular.z), std::abs(buggy_omega));
+}

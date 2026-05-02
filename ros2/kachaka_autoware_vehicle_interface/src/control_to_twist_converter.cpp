@@ -28,10 +28,21 @@ geometry_msgs::msg::Twist ControlToTwistConverter::convert(
 {
   const double v = static_cast<double>(control.longitudinal.velocity);
   const double delta = static_cast<double>(control.lateral.steering_tire_angle);
-  const double omega = (params_.wheel_base > 0.0) ? v * std::tan(delta) / params_.wheel_base : 0.0;
+
+  // Saturate linear velocity first, then derive omega from the clamped value
+  // so the (v, omega) pair preserves the curvature v*tan(delta)/L commanded by
+  // the controller. Computing omega from the unclamped v would make the robot
+  // turn much sharper than intended whenever the requested speed exceeds
+  // max_linear_velocity but the resulting omega still lies within its own
+  // saturation limit.
+  const double v_clamped =
+    std::clamp(v, -params_.max_linear_velocity, params_.max_linear_velocity);
+  const double omega = (params_.wheel_base > 0.0) ?
+    v_clamped * std::tan(delta) / params_.wheel_base :
+    0.0;
 
   geometry_msgs::msg::Twist twist;
-  twist.linear.x = std::clamp(v, -params_.max_linear_velocity, params_.max_linear_velocity);
+  twist.linear.x = v_clamped;
   twist.angular.z = std::clamp(omega, -params_.max_angular_velocity, params_.max_angular_velocity);
   return twist;
 }

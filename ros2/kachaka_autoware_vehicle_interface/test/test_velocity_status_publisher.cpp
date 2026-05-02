@@ -26,16 +26,32 @@ TEST(VelocityStatusPublisher, ConvertsLinearAndAngularComponents)
   odom.header.stamp.sec = 42;
   odom.header.stamp.nanosec = 123;
   odom.header.frame_id = "odom";
+  odom.child_frame_id = "base_link";
   odom.twist.twist.linear.x = 0.15;
   odom.twist.twist.angular.z = -0.5;
 
   const auto report = convert_odometry_to_velocity_report(odom);
   EXPECT_EQ(report.header.stamp.sec, 42);
   EXPECT_EQ(report.header.stamp.nanosec, 123u);
-  EXPECT_EQ(report.header.frame_id, "odom");
+  // VelocityReport must use the body frame the twist is expressed in, not
+  // the pose's reference frame.
+  EXPECT_EQ(report.header.frame_id, "base_link");
   EXPECT_FLOAT_EQ(report.longitudinal_velocity, 0.15f);
   EXPECT_FLOAT_EQ(report.lateral_velocity, 0.0f);
   EXPECT_FLOAT_EQ(report.heading_rate, -0.5f);
+}
+
+TEST(VelocityStatusPublisher, FrameIdComesFromChildFrameNotPoseFrame)
+{
+  // Regression guard: nav_msgs/Odometry.twist is defined in child_frame_id.
+  // Using header.frame_id here would mis-label body-frame velocities as the
+  // world frame whenever the source odometry is in odom/map.
+  nav_msgs::msg::Odometry odom;
+  odom.header.frame_id = "odom";
+  odom.child_frame_id = "base_link";
+  const auto report = convert_odometry_to_velocity_report(odom);
+  EXPECT_NE(report.header.frame_id, "odom");
+  EXPECT_EQ(report.header.frame_id, "base_link");
 }
 
 TEST(VelocityStatusPublisher, IgnoresLateralLinearVelocity)
