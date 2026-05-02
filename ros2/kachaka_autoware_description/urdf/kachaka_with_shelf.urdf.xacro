@@ -14,13 +14,13 @@
   </xacro:kachaka_robot>
 
   <!--
-    docking_link は Kachaka のドッキング・リフト機構（prismatic joint）。
-    ここを起点にシェルフを取り付けると、ドッキング動作（最大 0.012 m リフト）に
-    シェルフが追従するため、実機挙動と一致する。
+    docking_link is Kachaka's docking lift mechanism (prismatic joint).
+    Attaching the shelf here makes it follow the lift (up to ~0.012 m),
+    matching real hardware behavior.
   -->
   <xacro:shelf_3tier parent="docking_link"/>
 
-  <!-- Ouster OS-1 をシェルフ天面の中央に取り付け（Task 4 で実測した取付オフセットを反映） -->
+  <!-- Mount the Ouster OS-1 at the shelf top center; override origin with values measured in M0 Task 4. -->
   <xacro:ouster_os1 parent="shelf_top">
     <origin xyz="0 0 0" rpy="0 0 0"/>
   </xacro:ouster_os1>

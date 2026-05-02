@@ -1,9 +1,10 @@
 <?xml version="1.0"?>
 <robot name="shelf_3tier" xmlns:xacro="http://ros.org/wiki/xacro">
   <!--
-    Kachaka 純正 3 段シェルフのマクロ。寸法は概略値で、呼び出し側で
-    実機計測値を渡せる。`parent` は通常 docking_link を指定し、
-    docking lift にシェルフが追従するようにする。
+    Macro for the genuine Kachaka 3-tier shelf. Default dimensions are
+    approximate; the caller can override them with measured values.
+    `parent` is normally `docking_link` so the shelf follows the lift
+    mechanism.
   -->
   <xacro:macro name="shelf_3tier"
                params="parent

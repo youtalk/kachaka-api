@@ -1,10 +1,10 @@
 <?xml version="1.0"?>
 <robot name="ouster_os1" xmlns:xacro="http://ros.org/wiki/xacro">
   <!--
-    Ouster OS-1 (128) 簡易モデル。
-    body: 円筒（直径 85mm、高さ 73.5mm）
-    os1_lidar / os1_imu フレームのオフセットは Ouster ICD の値。
-    公式 ouster_description を入れたら置き換え可能。
+    Simplified Ouster OS-1 (128) model.
+    body: cylinder (diameter 85 mm, height 73.5 mm).
+    os1_lidar / os1_imu frame offsets follow the Ouster ICD.
+    Can be replaced by the official ouster_description if it becomes available.
   -->
   <xacro:macro name="ouster_os1"
                params="parent
